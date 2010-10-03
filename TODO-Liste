@@ -1,0 +1,3 @@
+TODO :
+- Ajouter la fonction map-case-analysis
+- Changer les <signal> par les fonctions warn (warning ?) ou error selon le cas d'utilisation.
