@@ -1,3 +1,5 @@
+;; -*- mode: Lisp; indent-tabs-mode: nil; -*-
+
 (defun case-analysis (expr env)
   (if (atom expr)
       (if (constantp expr)
