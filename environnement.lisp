@@ -14,7 +14,7 @@
 ;;    répercute sur la valeur accédée par l'autre.
 ;;  - Lorsqu'on définit une fonction, il faut mettre juste après la
 ;;    liste des paramètres une chaîne de caractères qui documente la
-;;    fonction (une docstring).
+;;    fonction (une docstring). http://en.wikipedia.org/wiki/Docstring
 
 
 ;; Exemple de la structure env-stack après création de deux
