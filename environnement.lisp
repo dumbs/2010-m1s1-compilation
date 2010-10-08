@@ -14,8 +14,8 @@
 ;;    répercute sur la valeur accédée par l'autre.
 ;;  - Lorsqu'on définit une fonction, il faut mettre juste après la
 ;;    liste des paramètres une chaîne de caractères qui documente la
-;;    fonction (une docstring). http://en.wikipedia.org/wiki/Docstring
-
+;;    fonction (une docstring).
+;;  - L'environnement top-level est partage par tous le monde
 
 ;; Exemple de la structure env-stack après création de deux
 ;; environnements en plus du top-level et ajout de plusieurs laisons.
@@ -94,4 +94,3 @@ l'environnement top-level."
 	(3 (add-binding (add-binding (push-new-env (empty-env-stack)) 'x 42) 'y 56))
 	))
 
-(test-env 0)
