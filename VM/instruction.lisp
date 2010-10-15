@@ -56,12 +56,12 @@
   (setf register (- register 1)))
 
 (defun PUSH (register)
-  (progn (INCR SP)
-         (STORE register SP)))
+  (INCR SP)
+  (STORE register SP))
 
 (defun POP (register)
-  (progn (LOAD SP register)
-         (DECR SP)))
+  (LOAD SP register)
+  (DECR SP))
 
 ;; TODO : Remplir la fonction JMP
 (defun JMP (dst)
@@ -77,17 +77,17 @@
 
 (defun CMP (reg1 reg2)
   (cond ((= (getValueInMemory reg1) (getValueInMemory reg2))
-         (progn (setf EQ T)
-                (setf PP nil)
-                (setf PG nil)))
+         (setf EQ T)
+         (setf PP nil)
+         (setf PG nil))
         ((< (getValueInMemory reg1) (getValueInMemory reg2))
-         (progn (setf EQ nil)
-                (setf PP T)
-                (setf PG nil)))
+         (setf EQ nil)
+         (setf PP T)
+         (setf PG nil))
         (T
-         (progn (setf EQ nil)
-                (setf PP nil)
-                (setf PG T)))))
+         (setf EQ nil)
+         (setf PP nil)
+         (setf PG T))))
 
 (defun JEQ (label)
   (if EQ
