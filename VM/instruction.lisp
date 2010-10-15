@@ -39,80 +39,80 @@
 (defun get-register (vm register) (send vm 'get-register register))
 (defun set-register (vm register value) (send vm 'set-register register value))
 
-(defun ISN_LOAD (vm address register)
+(defun ISN-LOAD (vm address register)
   (set-register vm register (get-memory vm address)))
 
-(defun ISN_STORE (vm register address)
+(defun ISN-STORE (vm register address)
   (set-memory vm address (get-register vm register)))
 
-(defun ISN_MOVE (vm reg1 reg2)
+(defun ISN-MOVE (vm reg1 reg2)
   (set-register vm reg2 (get-register vm reg1)))
 
-(defun ISN__OP_ (vm op reg1 reg2)
+(defun ISN--OP- (vm op reg1 reg2)
   (set-register vm reg2 (funcall op
                                  (get-register vm reg2)
                                  (get-register vm reg1))))
 
-(defun ISN_ADD  (vm reg1 reg2) (ISN__OP_ vm #'+ reg1 reg2))
-(defun ISN_SUB  (vm reg1 reg2) (ISN__OP_ vm #'- reg1 reg2))
-(defun ISN_MULT (vm reg1 reg2) (ISN__OP_ vm #'* reg1 reg2))
-(defun ISN_DIV  (vm reg1 reg2) (ISN__OP_ vm #'/ reg1 reg2))
+(defun ISN-ADD  (vm reg1 reg2) (ISN--OP- vm #'+ reg1 reg2))
+(defun ISN-SUB  (vm reg1 reg2) (ISN--OP- vm #'- reg1 reg2))
+(defun ISN-MULT (vm reg1 reg2) (ISN--OP- vm #'* reg1 reg2))
+(defun ISN-DIV  (vm reg1 reg2) (ISN--OP- vm #'/ reg1 reg2))
 
-(defun ISN_INCR (vm register)
+(defun ISN-INCR (vm register)
   (set-register vm register (+ (get-register vm register) 1)))
 
-(defun ISN_DECR (vm register)
+(defun ISN-DECR (vm register)
   (set-register vm register (- (get-register vm register) 1)))
 
-(defun ISN_PUSH (vm register)
-  (ISN_INCR vm 'SP)
-  (ISN_STORE vm register (get-register vm 'SP)))
+(defun ISN-PUSH (vm register)
+  (ISN-INCR vm 'SP)
+  (ISN-STORE vm register (get-register vm 'SP)))
 
-(defun ISN_POP (vm register)
-  (ISN_LOAD vm (get-register vm 'SP) register)
-  (ISN_DECR vm 'SP))
+(defun ISN-POP (vm register)
+  (ISN-LOAD vm (get-register vm 'SP) register)
+  (ISN-DECR vm 'SP))
 
-(defun ISN_JMP (vm dst)
+(defun ISN-JMP (vm dst)
   (set-register vm 'PC dst))
 
 (defun JSR (vm dst)
-  (ISN_PUSH vm 'PC)
-  (ISN_JMP vm dst))
+  (ISN-PUSH vm 'PC)
+  (ISN-JMP vm dst))
 
-(defun ISN_RTN (vm)
-  (ISN_POP vm 'PC))
+(defun ISN-RTN (vm)
+  (ISN-POP vm 'PC))
 
-(defun ISN_CMP (vm reg1 reg2)
+(defun ISN-CMP (vm reg1 reg2)
   (set-register vm 'EQ (= (get-register vm reg1) (get-register vm reg2)))
   (set-register vm 'PP (< (get-register vm reg1) (get-register vm reg2)))
   (set-register vm 'PG (> (get-register vm reg1) (get-register vm reg2))))
 
-(defun ISN__JCOND_ (pp eq pg vm dst)
+(defun ISN--JCOND- (pp eq pg vm dst)
   (if (or (and eq (get-register vm 'EQ))
           (and pg (get-register vm 'PG))
           (and pp (get-register vm 'PP)))
-      (ISN_JMP vm dst)))
+      (ISN-JMP vm dst)))
 
-(defun ISN_JEQ (vm dst)
-  (ISN__JCOND_ nil t nil vm dst))
+(defun ISN-JEQ (vm dst)
+  (ISN--JCOND- nil t nil vm dst))
 
-(defun ISN_JPG (vm dst)
-  (ISN__JCOND_ nil nil t vm dst))
+(defun ISN-JPG (vm dst)
+  (ISN--JCOND- nil nil t vm dst))
 
-(defun ISN_JPP (vm dst)
-  (ISN__JCOND_ t nil nil vm dst))
+(defun ISN-JPP (vm dst)
+  (ISN--JCOND- t nil nil vm dst))
 
-(defun ISN_JPE (vm dst)
-  (ISN__JCOND_ t t nil vm dst))
+(defun ISN-JPE (vm dst)
+  (ISN--JCOND- t t nil vm dst))
 
-(defun ISN_JPE (vm dst)
-  (ISN__JCOND_ nil t t vm dst))
+(defun ISN-JPE (vm dst)
+  (ISN--JCOND- nil t t vm dst))
 
-(defun ISN_JNE (vm dst)
-  (ISN__JCOND_ t nil t vm dst))
+(defun ISN-JNE (vm dst)
+  (ISN--JCOND- t nil t vm dst))
 
-(defun ISN_NOP (vm)
+(defun ISN-NOP (vm)
   vm)
 
-(defun ISN_HALT (vm)
+(defun ISN-HALT (vm)
   (set-register vm 'HALT t))
