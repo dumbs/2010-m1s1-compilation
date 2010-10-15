@@ -1,128 +1,118 @@
+;; "objet" VM.
+;; Instanciation :
+;;     (defvar vm (make-vm 100))
+;; Appels de méthode :
+;;     (send vm get-memory 42)
+;;     (send vm set-memory 42 5)
+;;     (send vm get-register R1)
+;;     (send vm set-register R2 (send vm get-register 42))
+(defun make-vm (size)
+  (let* ((memory (make-array size :initial-element 0))
+         (registres `(;; Registres généraux.
+                      (R0 . 0)
+                      (R1 . 0)
+                      (R2 . 0)
+                      ;; Base de la pile.
+                      (BP . 0)
+                      ;; Sommet de la pile.
+                      (SP . 0)
+                      ;; Pointeur de code : fin de la mémoire.
+                      (PC . ,(- size 1))
+                      ;; registres booléens = faux (nil).
+                      (PP . nil)
+                      (EQ . nil)
+                      (PG . nil)
+                      ;; Quand HALT passe à t, on arrête la machine.
+                      (HALT . nil)))
+         (actions `((get-memory . ,(lambda (index) (aref memory index)))
+                    (set-memory . ,(lambda (index value) (setf (aref memeory index) value)))
+                    (get-register . ,(lambda (reg) (cdr (assoc reg registres))))
+                    (set-register . ,(lambda (reg) (setf (cdr (get-register reg))))))))
+    (lambda (message &rest params)
+      (apply (assoc message actions) params))))
 
-;; TODO : Penser a cree une fonction qui initialise un tableau en fonction d'un parametre.
-(setq memory (make-array 100))
+(defun send (obj &rest params)
+  (apply obj params))
 
-(defun getValueInMemory (index)
-  (aref memory index))
+(defun get-memory (vm index) (send vm get-memory index))
+(defun set-memory (vm index value) (send vm get-memory index value))
+(defun get-register (vm register) (send vm get-register register))
+(defun set-register (vm register value) (send vm set-register register value))
 
-(defun setValueInMemory (index value)
-  (setf (aref memory index) value))
+(defun LOAD (vm address register)
+  (set-register vm register (get-memory vm address)))
 
+(defun STORE (vm register address)
+  (set-memory vm address (get-register vm register)))
 
-;;On initialise les registres a rien (peut etre faut il mettre 0 ?)
-(setf R0 nil)
-(setf R1 nil)
-(setf R2 nil)
+(defun MOVE (vm reg1 reg2)
+  (set-register vm reg2 (get-register vm reg1)))
 
-;; On initialise le registre de pointeur de base a l'indice 0 du tableau memory
-(setf BP 0)
-;; On initialise le registre de pointeur de pile a la valeur du pointeur de base
-(setf SP BP)
-;; On initialise le registre du compteur ordinale a la taille du tableau - 1
-;; TODO : Recupere la taille du tableau dynamiquement.
-(setf PC 99)
+(defun _OP_ (vm op reg1 reg2)
+  (set-register vm reg2 (funcall op
+                                 (get-register vm reg2)
+                                 (get-register vm reg1))))
 
-;; On initialise les registres booleen a faux (nil)
-(setf PP nil)
-(setf EQ nil)
-(setf PG nil)
+(defun ADD  (vm reg1 reg2) (_OP_ vm #'+ reg1 reg2))
+(defun SUB  (vm reg1 reg2) (_OP_ vm #'- reg1 reg2))
+(defun MULT (vm reg1 reg2) (_OP_ vm #'* reg1 reg2))
+(defun DIV  (vm reg1 reg2) (_OP_ vm #'/ reg1 reg2))
 
-(defun LOAD (address register)
-  (setf register (getValueInMemory address)))
+(defun INCR (vm register)
+  (set-register vm register (+ (get-register vm register) 1)))
 
-(defun STORE (register address)
-  (setValueInMemory address register))
+(defun DECR (vm register)
+  (set-register vm register (- (get-register vm register) 1)))
 
-;; TODO : Remplir la fonction MOVE
-(defun MOVE (reg1 reg2)
-  )
+(defun PUSH (vm register)
+  (INCR vm 'SP)
+  (STORE vm register (get-register vm 'SP)))
 
-(defun ADD (reg1 reg2)
-  (setf reg2 (+ reg2 reg1)))
+(defun POP (vm register)
+  (LOAD vm (get-register vm 'SP) register)
+  (DECR vm 'SP))
 
-(defun SUB (reg1 reg2)
-  (setf reg2 (- reg2 reg1)))
+(defun JMP (vm dst)
+  (set-register vm 'PC dst))
 
-(defun MULT (reg1 reg2)
-  (setf reg2 (* reg2 reg1)))
-
-(defun DIV (reg1 reg2)
-  (setf reg2 (/ reg2 reg1)))
-
-(defun INCR (register)
-  (setf register (+ register 1)))
-
-(defun DECR (register)
-  (setf register (- register 1)))
-
-(defun PUSH (register)
-  (progn (INCR SP)
-         (STORE register SP)))
-
-(defun POP (register)
-  (progn (LOAD SP register)
-         (DECR SP)))
-
-;; TODO : Remplir la fonction JMP
-(defun JMP (dst)
-  )
-
-;; TODO : Remplir la fonction JSR
-(defun JSR (dst)
-  )
+(defun JSR (vm dst)
+  (PUSH vm 'PC)
+  (JMP vm dst))
 
 ;; TODO : Remplir la fonction RTN
-(defun RTN ()
-  )
+(defun RTN (vm)
+  (POP vm 'PC))
 
-(defun CMP (reg1 reg2)
-  (cond ((= (getValueInMemory reg1) (getValueInMemory reg2))
-         (progn (setf EQ T)
-                (setf PP nil)
-                (setf PG nil)))
-        ((< (getValueInMemory reg1) (getValueInMemory reg2))
-         (progn (setf EQ nil)
-                (setf PP T)
-                (setf PG nil)))
-        (T
-         (progn (setf EQ nil)
-                (setf PP nil)
-                (setf PG T)))))
+(defun CMP (vm reg1 reg2)
+  (set-register vm 'EQ (= (get-register vm reg1) (get-register vm reg2)))
+  (set-register vm 'PP (< (get-register vm reg1) (get-register vm reg2)))
+  (set-register vm 'PG (> (get-register vm reg1) (get-register vm reg2))))
 
-(defun JEQ (label)
-  (if EQ
-      (JMP label))
-  )
+(defun _JCOND_ (vm pp eq pg vm dst)
+  (if (or (and eq (get-register vm 'EQ))
+          (and pg (get-register vm 'PG))
+          (and pp (get-register vm 'PP)))
+      (JMP vm dst)))
 
-(defun JPG (label)
-  (if PG
-      (JMP label))
-  )
+(defun JEQ (vm dst)
+  (_JCOND_ vm nil t nil vm dst))
 
-(defun JPP (label)
-  (if PP
-      (JMP label))
-  )
+(defun JPG (vm dst)
+  (_JCOND_ vm nil nil t vm dst))
 
-(defun JPE (label)
-  (if (or PP EQ)
-      (JMP label))
-  )
+(defun JPP (vm dst)
+  (_JCOND_ vm t nil nil vm dst))
 
-(defun JGE (label)
-  (if (or PG EQ)
-      (JMP label))
-  )
+(defun JPE (vm dst)
+  (_JCOND_ vm t t nil vm dst))
 
-(defun JNE (label)
-  (if (not EQ)
-      (JMP label))
-  )
+(defun JPE (vm dst)
+  (_JCOND_ vm nil t t vm dst))
 
-;; TODO : Remplir la fonction NOP
-(defun NOP ()
-  )
+(defun JNE (vm dst)
+  (_JCOND_ vm t nil t vm dst))
 
-;; TODO : Remplir la fonction HALT
-(defun HALT ()
-  )
+(defun NOP (vm))
+
+(defun HALT (vm)
+  (set-register vm 'HALT t))
