@@ -25,94 +25,94 @@
                       ;; Quand HALT passe à t, on arrête la machine.
                       (HALT . nil)))
          (actions `((get-memory . ,(lambda (index) (aref memory index)))
-                    (set-memory . ,(lambda (index value) (setf (aref memeory index) value)))
+                    (set-memory . ,(lambda (index value) (setf (aref memory index) value)))
                     (get-register . ,(lambda (reg) (cdr (assoc reg registres))))
-                    (set-register . ,(lambda (reg) (setf (cdr (get-register reg))))))))
+                    (set-register . ,(lambda (reg value) (setf (cdr (assoc reg registres)) value))))))
     (lambda (message &rest params)
       (apply (assoc message actions) params))))
 
 (defun send (obj &rest params)
   (apply obj params))
 
-(defun get-memory (vm index) (send vm get-memory index))
-(defun set-memory (vm index value) (send vm get-memory index value))
-(defun get-register (vm register) (send vm get-register register))
-(defun set-register (vm register value) (send vm set-register register value))
+(defun get-memory (vm index) (send vm 'get-memory index))
+(defun set-memory (vm index value) (send vm 'get-memory index value))
+(defun get-register (vm register) (send vm 'get-register register))
+(defun set-register (vm register value) (send vm 'set-register register value))
 
-(defun LOAD (vm address register)
+(defun ISN_LOAD (vm address register)
   (set-register vm register (get-memory vm address)))
 
-(defun STORE (vm register address)
+(defun ISN_STORE (vm register address)
   (set-memory vm address (get-register vm register)))
 
-(defun MOVE (vm reg1 reg2)
+(defun ISN_MOVE (vm reg1 reg2)
   (set-register vm reg2 (get-register vm reg1)))
 
-(defun _OP_ (vm op reg1 reg2)
+(defun ISN__OP_ (vm op reg1 reg2)
   (set-register vm reg2 (funcall op
                                  (get-register vm reg2)
                                  (get-register vm reg1))))
 
-(defun ADD  (vm reg1 reg2) (_OP_ vm #'+ reg1 reg2))
-(defun SUB  (vm reg1 reg2) (_OP_ vm #'- reg1 reg2))
-(defun MULT (vm reg1 reg2) (_OP_ vm #'* reg1 reg2))
-(defun DIV  (vm reg1 reg2) (_OP_ vm #'/ reg1 reg2))
+(defun ISN_ADD  (vm reg1 reg2) (ISN__OP_ vm #'+ reg1 reg2))
+(defun ISN_SUB  (vm reg1 reg2) (ISN__OP_ vm #'- reg1 reg2))
+(defun ISN_MULT (vm reg1 reg2) (ISN__OP_ vm #'* reg1 reg2))
+(defun ISN_DIV  (vm reg1 reg2) (ISN__OP_ vm #'/ reg1 reg2))
 
-(defun INCR (vm register)
+(defun ISN_INCR (vm register)
   (set-register vm register (+ (get-register vm register) 1)))
 
-(defun DECR (vm register)
+(defun ISN_DECR (vm register)
   (set-register vm register (- (get-register vm register) 1)))
 
-(defun PUSH (vm register)
-  (INCR vm 'SP)
-  (STORE vm register (get-register vm 'SP)))
+(defun ISN_PUSH (vm register)
+  (ISN_INCR vm 'SP)
+  (ISN_STORE vm register (get-register vm 'SP)))
 
-(defun POP (vm register)
-  (LOAD vm (get-register vm 'SP) register)
-  (DECR vm 'SP))
+(defun ISN_POP (vm register)
+  (ISN_LOAD vm (get-register vm 'SP) register)
+  (ISN_DECR vm 'SP))
 
-(defun JMP (vm dst)
+(defun ISN_JMP (vm dst)
   (set-register vm 'PC dst))
 
 (defun JSR (vm dst)
-  (PUSH vm 'PC)
-  (JMP vm dst))
+  (ISN_PUSH vm 'PC)
+  (ISN_JMP vm dst))
 
-;; TODO : Remplir la fonction RTN
-(defun RTN (vm)
-  (POP vm 'PC))
+(defun ISN_RTN (vm)
+  (ISN_POP vm 'PC))
 
-(defun CMP (vm reg1 reg2)
+(defun ISN_CMP (vm reg1 reg2)
   (set-register vm 'EQ (= (get-register vm reg1) (get-register vm reg2)))
   (set-register vm 'PP (< (get-register vm reg1) (get-register vm reg2)))
   (set-register vm 'PG (> (get-register vm reg1) (get-register vm reg2))))
 
-(defun _JCOND_ (vm pp eq pg vm dst)
+(defun ISN__JCOND_ (pp eq pg vm dst)
   (if (or (and eq (get-register vm 'EQ))
           (and pg (get-register vm 'PG))
           (and pp (get-register vm 'PP)))
-      (JMP vm dst)))
+      (ISN_JMP vm dst)))
 
-(defun JEQ (vm dst)
-  (_JCOND_ vm nil t nil vm dst))
+(defun ISN_JEQ (vm dst)
+  (ISN__JCOND_ nil t nil vm dst))
 
-(defun JPG (vm dst)
-  (_JCOND_ vm nil nil t vm dst))
+(defun ISN_JPG (vm dst)
+  (ISN__JCOND_ nil nil t vm dst))
 
-(defun JPP (vm dst)
-  (_JCOND_ vm t nil nil vm dst))
+(defun ISN_JPP (vm dst)
+  (ISN__JCOND_ t nil nil vm dst))
 
-(defun JPE (vm dst)
-  (_JCOND_ vm t t nil vm dst))
+(defun ISN_JPE (vm dst)
+  (ISN__JCOND_ t t nil vm dst))
 
-(defun JPE (vm dst)
-  (_JCOND_ vm nil t t vm dst))
+(defun ISN_JPE (vm dst)
+  (ISN__JCOND_ nil t t vm dst))
 
-(defun JNE (vm dst)
-  (_JCOND_ vm t nil t vm dst))
+(defun ISN_JNE (vm dst)
+  (ISN__JCOND_ t nil t vm dst))
 
-(defun NOP (vm))
+(defun ISN_NOP (vm)
+  vm)
 
-(defun HALT (vm)
+(defun ISN_HALT (vm)
   (set-register vm 'HALT t))
