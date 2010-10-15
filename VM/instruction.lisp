@@ -27,17 +27,19 @@
          (actions `((get-memory . ,(lambda (index) (aref memory index)))
                     (set-memory . ,(lambda (index value) (setf (aref memory index) value)))
                     (get-register . ,(lambda (reg) (cdr (assoc reg registres))))
-                    (set-register . ,(lambda (reg value) (setf (cdr (assoc reg registres)) value))))))
+                    (set-register . ,(lambda (reg value) (setf (cdr (assoc reg registres)) value)))
+                    (print-memory . ,(lambda () (dotimes (i (length memory)) (print (aref memory i))))))))
     (lambda (message &rest params)
-      (apply (assoc message actions) params))))
+      (apply (cdr (assoc message actions)) params))))
 
 (defun send (obj &rest params)
   (apply obj params))
 
 (defun get-memory (vm index) (send vm 'get-memory index))
-(defun set-memory (vm index value) (send vm 'get-memory index value))
+(defun set-memory (vm index value) (send vm 'set-memory index value))
 (defun get-register (vm register) (send vm 'get-register register))
 (defun set-register (vm register value) (send vm 'set-register register value))
+(defun print-memory (vm) (send vm 'print-memory))
 
 (defun ISN-LOAD (vm address register)
   (set-register vm register (get-memory vm address)))
