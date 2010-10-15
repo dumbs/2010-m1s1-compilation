@@ -1,0 +1,35 @@
+Registres => R0, R1, R2
+
+Registres Special => BP (Base Pointer), SP (Stack Pointer), PC (Programme Counter -> Compteur Ordinale)
+Pile vide -> SP <= BP (pile montante)
+
+3 registres booleen => PP EQ PG. Ne peut etre modifier que par le CMP
+
+Memoire => 0 ... N-1 (un tableau en concret)
+
+Il FAUT que le chargeur soit compiler et charger dans la VM => En gros faire un boot strap
+
+Instruction :
+(LOAD @ <Reg>)
+(STORE <Reg> @)
+(MOVE <Reg> <Reg2>) => Reg = src et Reg2 = dest
+(ADD <Reg> <Reg2>) => Reg = src et Reg2 = dest -> <Reg2> = <Reg2> + <Reg>
+(SUB <Reg> <Reg2>) => Reg = src et Reg2 = dest -> <Reg2> = <Reg2> - <Reg>
+(MULT <Reg> <Reg2>) => Reg = src et Reg2 = dest -> <Reg2> = <Reg2> * <Reg>
+(DIV <Reg> <Reg2>) => Reg = src et Reg2 = dest -> <Reg2> = <Reg2> / <Reg> (On peut faire la detection du zero)
+(INCR <Reg>) => Incremente le registre +1
+(DECR <Reg>) => Incremente le registre -1
+(PUSH <Reg>) => Met la valeur du registre sur la pile. Equivalent (INCR SP) (STORE <Reg> SP)
+(POP <Reg>) => Depile le sommet de pile et le met dans Reg. Equivalent (LOAD SP <Reg>) (DECR SP)
+(JMP <dst>) => dst est soit une @ soit un <Reg>. On peut utiliser une etiquette @etiquette. Ex: (JMP 'FACT)
+(JSR <etiq>) => Empile l'adresse de retour pour pouvoir y retourner. Equivalent (PUSH PC) (JMP <etiq>)
+(RTN) => Equivalent (LOAD SP R0) (DECR SP) (JMP R0)
+(CMP <Reg> <Reg2>) => Si R1 = R2 alors EQ <- V, PP <- F, PG <- F etc
+(JEQ <etiq>) => Fait un saut a l'etique si EQ est V
+(JPG <etiq>) => Plus Grand
+(JPP <etiq>) => Plus Petit
+(JPE <etiq>) => Plus Petit ou egale
+(JGE <etiq>) => Plus Grand ou egale
+(JNE <etiq>) => Non egale
+(NOP) => Ne fait rien 
+(HALT) => Stop
