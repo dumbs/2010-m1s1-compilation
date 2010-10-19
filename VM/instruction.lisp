@@ -8,7 +8,7 @@
 ;;     (send vm set-register R2 (send vm get-register 42))
 (defun make-vm (size)
   (let* ((memory (make-array size :initial-element 0))
-         (registres `(;; Registres généraux.
+         (registers `(;; Registres généraux.
                       (R0 . 0)
                       (R1 . 0)
                       (R2 . 0)
@@ -26,9 +26,10 @@
                       (HALT . nil)))
          (actions `((get-memory . ,(lambda (index) (aref memory index)))
                     (set-memory . ,(lambda (index value) (setf (aref memory index) value)))
-                    (get-register . ,(lambda (reg) (cdr (assoc reg registres))))
-                    (set-register . ,(lambda (reg value) (setf (cdr (assoc reg registres)) value)))
-                    (print-memory . ,(lambda () (dotimes (i (length memory)) (print (aref memory i))))))))
+                    (get-register-list . ,(lambda () (mapcar #'car registers)))
+                    (get-register . ,(lambda (reg) (cdr (assoc reg registers))))
+                    (set-register . ,(lambda (reg value) (setf (cdr (assoc reg registers)) value)))
+                    (size-memory . ,(lambda () (length memory))))))
     (lambda (message &rest params)
       (apply (cdr (assoc message actions)) params))))
 
@@ -37,9 +38,29 @@
 
 (defun get-memory (vm index) (send vm 'get-memory index))
 (defun set-memory (vm index value) (send vm 'set-memory index value))
+(defun get-register-list (vm) (send vm 'get-register-list))
 (defun get-register (vm register) (send vm 'get-register register))
 (defun set-register (vm register value) (send vm 'set-register register value))
-(defun print-memory (vm) (send vm 'print-memory))
+(defun size-memory (vm) (send vm 'size-memory))
+
+;;TODO : Faire les registres
+(defun dump-vm (vm)
+  (dotimes (i (size-memory vm))
+    (let ((val (get-memory vm i)))
+      (format T "~&~8,'0x ~2,'0x ~3d ~a" i val val (isn-decode val))))
+    (mapcar (lambda (reg)
+              (let ((val (get-register vm reg)))
+                (format T "~&~4a ~2,'0x ~3d" (string reg) val val)))
+            (get-register-list vm))
+    (let ((isn (get-memory vm (get-register vm 'PC))))
+      (format T "~&Current instruction : ~2,'0x ~a" isn (isn-decode isn))))
+
+;;TODO : Penser a ajouter une table des opcodes
+(defun isn-decode (opcode)
+  opcode)
+
+(defun isn-encode (instruction)
+  instruction)
 
 (defun ISN-LOAD (vm address register)
   (set-register vm register (get-memory vm address)))
@@ -75,7 +96,7 @@
   (ISN-DECR vm 'SP))
 
 (defun ISN-JMP (vm dst)
-  (set-register vm 'PC dst))
+  (set-register vm 'PC (- dst 1)))
 
 (defun JSR (vm dst)
   (ISN-PUSH vm 'PC)
@@ -118,3 +139,5 @@
 
 (defun ISN-HALT (vm)
   (set-register vm 'HALT t))
+
+

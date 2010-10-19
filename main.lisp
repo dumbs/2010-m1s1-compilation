@@ -6,5 +6,5 @@
 (load "environnement")
 (load "VM/instruction")
 ;; ...
-(run-test t)
-(print-env-stack exemple-env-stack)
+;(run-test t)
+;(print-env-stack exemple-env-stack)
