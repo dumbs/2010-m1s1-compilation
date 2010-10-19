@@ -141,3 +141,23 @@
   (set-register vm 'HALT t))
 
 
+;;Test Unitaire
+;; TODO : Faire deftestvar
+(load "test-unitaire")
+(defvar vm (make-vm (+ 10 (random 10))))
+(defvar t-address (random (size-memory vm)))
+(defvar t-value (random 42))
+(set-memory vm t-address t-value)
+
+(deftest virtual-machine
+  (progn (ISN-LOAD vm t-address 'R0)
+         (get-register vm 'R0))
+  (get-memory vm t-address))
+
+(setf t-address (random (size-memory vm)))
+(deftest virtual-machine
+  (progn (ISN-STORE vm 'R0 t-address)
+         (get-memory vm t-address))
+  (get-register vm 'R0))
+
+(dump-vm vm)
