@@ -22,14 +22,17 @@
 (defvar exemple-env-stack 
   '(;; Environnement le plus bas (dernières définitions par ordre
     ;; chronologique).
-    ((x . plop))
+    ("DEFUN"
+     (x . plop))
     ;; Un autre environnement (définitions "plus vieilles").
-    ((y . "#lambda")
+    ("LET"
+     (y . "#lambda")
      (x . "bijour")
      (z . 123))
     ;; Top-level. Environnement le plus haut (définitions "globales"
     ;; faites avec defun, defvar etc.).
-    ((y . 56)
+    ("TOP-LEVEL"
+     (y . 56)
      (x . 42)
      (foo . "#lambda"))))
 
@@ -37,60 +40,104 @@
 
 (defun empty-env-stack ()
   "Constructeur de la pile d'environnements."
-  '(()))
+  (list (list "TOP-LEVEL")))
 
-(defun push-new-env (env-stack)
+(defun push-new-env (env-stack name)
   "Crée un nouvel environnement, l'ajoute à ENV-STACK et renvoie la
 version modifiée (sans altérer l'original).
 Le paramètre ENV-STACK est toute la pile d'environnements."
-  (cons '() env-stack))
+  (cons (list name) env-stack))
 
 (defun add-binding (env-stack name value)
   "Ajoute une liaison au dernier environnement (le plus bas)."
-  (setf (car env-stack)
+  (setf (cdar env-stack)
 	(cons (cons name value)
-	      (car env-stack)))
+	      (cdar env-stack)))
   env-stack)
 
 (defun set-binding (env-stack name new-value)
   "Modifie la valeur associée à une liaison."
-  (setf (cdr (get-binging name))
+  (setf (cdr (get-binding env-stack name))
 	new-value)
   env-stack)
 
 (defun get-binding-value (env-stack name)
   "Récupère la valeur associée a NAME ."
-  (cdr (get-binding name)))
+  (cdr (get-binding env-stack name)))
 
 (defun get-binding (env-stack name)
   "Récupère la liaison correspondant à NAME ."
   (if (atom env-stack)
       nil ; TODO : Penser à peut-être mettre un warn ou error.
-  (let ((ass (assoc name (car env-stack))))
+  (let ((ass (assoc name (cdar env-stack))))
     (if ass ass
       (get-binding (cdr env-stack) name)))))
 
-(defun top-level (env-stack)
+(defun top-level-env-stack (env-stack)
   "Recupere la pile d'environnement contenant uniquement
 l'environnement top-level"
   (if (atom (cdr env-stack))
       env-stack
-    (top-level (cdr env-stack))))
+    (top-level-env-stack (cdr env-stack))))
 
 (defun add-top-level-binding (env-stack name value)
   "Ajoute une liaison \"globale\" à l'environnement top-level."
-  (add-binding (top-level env-stack) name value))
+  (add-binding (top-level-env-stack env-stack) name value)
+  env-stack)
 
 (defun set-top-level-binding (env-stack name new-value) ;; modifie une definition
   "Modifie la valeur associée à une liaison \"globale\" de
 l'environnement top-level."
-  (set-binding (top-level env-stack) name new-value))
+  (set-binding (top-level-env-stack env-stack) name new-value)
+  env-stack)
 
-(defun test-env (num)
-  (case num
-	(0 (push-new-env (empty-env-stack)))
-	(1 (push-new-env exemple-env-stack))
-	(2 (add-binding (push-new-env (empty-env-stack)) 'x 42))
-	(3 (add-binding (add-binding (push-new-env (empty-env-stack)) 'x 42) 'y 56))
-	))
+(defun print-env-stack (env-stack)
+  (if (atom env-stack)
+      nil
+    (progn (format t "~&~a: " (caar env-stack))
+           (mapcar (lambda (b) (format t "~&   ~w = ~w" (car b) (cdr b)))
+                   (cdar env-stack))
+           (print-env-stack (cdr env-stack)))))
 
+;;Test Unitaire
+(load "test-unitaire")
+(deftest environnement
+  (push-new-env (empty-env-stack) "TEST")
+  '(("TEST") ("TOP-LEVEL")))
+(deftest environnement
+  (push-new-env (copytree exemple-env-stack) "TEST")
+  (cons '("TEST") exemple-env-stack))
+(deftest environnement
+  (add-binding (empty-env-stack) 'x 42)
+  '(("TOP-LEVEL" (x . 42))))
+(deftest environnement
+  (add-binding (push-new-env (empty-env-stack) "FOO-BAR") 'x 42)
+  '(("FOO-BAR" (x . 42)) ("TOP-LEVEL")))
+(deftest environnement
+  (add-binding (add-binding (empty-env-stack) 'x 42) 'y 56)
+  '(("TOP-LEVEL" (y . 56) (x . 42))))
+;; TODO : Rajouter un test d'erreur => Georges!!!!!!
+;(deftest environnement (set-binding (empty-env-stack) 'x 42) nil)
+(deftest environnement
+  (set-binding (add-binding (empty-env-stack) 'x 42) 'x .42)
+  '(("TOP-LEVEL" (x . .42))))
+(deftest environnement
+  (get-binding (copytree '(("TOP-LEVEL" (X . 42))))
+               'x)
+  '(x . 42))
+(deftest environnement
+  (get-binding-value (copytree '(("FOO" (Z . 42)) ("TOP-LEVEL" (x . 42))))
+                     'x)
+  42)
+(deftest environnement
+  (top-level-env-stack (copytree '(("BAR" (X . 42))
+                                   ("TOP-LEVEL" (X . 24) (Z . 73)))))
+  '(("TOP-LEVEL" (X . 24) (Z . 73))))
+(deftest environnement
+  (add-top-level-binding (copytree '(("TEST" (X . 42)) ("TOP-LEVEL" (Y . 56))))
+                         'Z 78)
+  '(("TEST" (X . 42)) ("TOP-LEVEL" (Z . 78) (Y . 56))))
+(deftest environnement
+  (set-top-level-binding (copytree '(("LEVEL2" (X . 42)) ("TOP-LEVEL" (Y . 56))))
+                         'Y "42")
+  '(("LEVEL2" (X . 42)) ("TOP-LEVEL" (Y . "42"))))
