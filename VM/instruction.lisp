@@ -43,7 +43,6 @@
 (defun set-register (vm register value) (send vm 'set-register register value))
 (defun size-memory (vm) (send vm 'size-memory))
 
-;;TODO : Faire les registres
 (defun dump-vm (vm)
   (dotimes (i (size-memory vm))
     (let ((val (get-memory vm i)))
@@ -59,8 +58,11 @@
 (defun isn-decode (opcode)
   opcode)
 
+;;TODO : Penser a ajouter une table des opcodes
 (defun isn-encode (instruction)
   instruction)
+
+;;TODO : Rajouter une fonction resolve pour resoudre les differents modes d'adresssage.
 
 (defun ISN-LOAD (vm address register)
   (set-register vm register (get-memory vm address)))
@@ -143,6 +145,7 @@
 
 ;;Test Unitaire
 ;; TODO : Faire deftestvar
+;; TODO : Finir le test unitaire
 (load "test-unitaire")
 (defvar vm (make-vm (+ 10 (random 10))))
 (defvar t-address (random (size-memory vm)))
@@ -159,5 +162,6 @@
   (progn (ISN-STORE vm 'R0 t-address)
          (get-memory vm t-address))
   (get-register vm 'R0))
+
 
 (dump-vm vm)
