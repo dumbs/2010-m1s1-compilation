@@ -43,7 +43,7 @@
 (defun set-register (vm register value) (send vm 'set-register register value))
 (defun size-memory (vm) (send vm 'size-memory))
 
-;;TODO : Penser a ajouter une table des opcodes
+;; TODO : Penser a ajouter une table des opcodes
 
 (defvar table-operateurs
   '(load store move add sub mult div incr decr push pop
@@ -52,53 +52,31 @@
 (defvar table-modes-adressage
   '(constant direct registre indexé indirect indirect-registre indirect-indexé))
 
-(defun nb-bits (n)
-  "Retourne ne nombre de bits nécessaires pour stocker n en base 2."
-  (ceiling (log n 2)))
-
-(defun ceiling-power-2 (n)
-  "Retourne la puissance de deux immédiatement supérieure ou égale à n"
-  (expt 2 (nb-bits n)))
-
-(defvar mult-mode-adressage-1
-  (ceiling-power-2 (+ 1 (length table-operateurs)))
-  "opcode = (operateur + (* mult-mode-adressage-1 mode-adressage-1) ...)")
-
-(defvar mult-mode-adressage-2
-  (* mult-mode-adressage-1 (ceiling-power-2 (+ 1 (length table-modes-adressage))))
-  "opcode = (operateur + ... (* mult-mode-adressage-2 mode-adressage-2))")
-
-(defvar table-opcodes
-  (let* ((isn-number 0)
-         (mult-maddr-1 (ceiling-power-2 (+ 1 (length table-operateurs))))
-         (mult-maddr-2 (* mult-maddr-1 (ceiling-power-2 (+ 1 (length table-modes-adressage))))))
-    (mapcar (lambda (isn)
-              (setq isn-number (+ 1 isn-number))
-              (let ((maddr-1-number 0))
-                (mapcar (lambda (maddr-1)
-                          (setq maddr-1-number (+ 1 maddr-1-number))
-                          (let ((maddr-2-number 0))
-                            (mapcar (lambda (maddr-2)
-                                      (setq maddr-2-number (+ 1 maddr-2-number))
-                                      (cons (list isn
-                                                  maddr-1
-                                                  maddr-2)
-                                            (+ isn-number
-                                               (* maddr-1-number mult-maddr-1)
-                                               (* maddr-2-number mult-maddr-2))))
-                                    table-modes-adressage)))
-                        table-modes-adressage)))
-            table-operateurs)))
+;; Fonctions de manipulation de bits :
+;; http://psg.com/~dlamkins/sl/chapter18.html
+;;   (integer-length n) ≡ ⎡log₂(n)⎤
+;;   (ash n décalage) = décalage binaire à gauche (ou droite si négatif)
+;;   (logior a b) = ou binaire de a et b.
 
 (defun position1 (x l) (+ 1 (position x l)))
 
-(defun split-bytes (n nmax)
-  "Découpe n en plusieurs valeurs inférieures à 256, avec nmax la valeur maximum
-   (qui assure qu'on a toujours le même nombre de valeurs renvoyées)."
-  (if (< nmax 256)
-      (list n)
-      (cons (ldb (byte 8 0) n) (split-bytes (floor
-  )
+(defun split-bytes (n nb-bytes append)
+  "Découpe N en plusieurs valeurs inférieures à 256,
+en renvoyant une liste de longueur NB-BYTES,
+et termine par la liste APPEND."
+  (if (<= nb-bytes 0)
+      append
+      (cons (ldb (byte 8 (* 8 (- nb-bytes 1))) n)
+            (split-bytes n (- nb-bytes 1) append))))
+
+(defvar nb-operateurs (length table-operateurs))
+(defvar nb-modes-adressage (length table-modes-adressage))
+(defvar nb-opcode-bytes
+  (ceiling (/ (+ (integer-length (+ 1 nb-operateurs))
+                 (* 2
+                    (integer-length (+ 1 nb-modes-adressage))))
+              ;; On divise par 8 car 8 bits dans un byte.
+              8)))
 
 (defun isn-decode (opcode)
   opcode)
@@ -107,16 +85,20 @@
 ;; '(operateur mode-adressage-1 valeur-1 mode-adressage-2 valeur-2)
 ;; Si l'instruction ne prend qu'un (ou zéro) paramètre, les champs
 ;; correspondants sont mis à nil.
+;; TODO : encoder en entier les registres de valeur-1 et valeur-2.
 (defun isn-encode (instruction)
   (let ((operateur (first instruction))
         (mode-adressage-1 (second instruction))
         (valeur-1 (third instruction))
         (mode-adressage-2 (fourth instruction))
         (valeur-2 (fifth instruction)))
-    (list (+ (position1 operateur table-operateurs)
-             (* mult-mode-adressage-1 (position1 mode-adressage-1 table-modes-adressage))
-             (* mult-mode-adressage-2 (position1 mode-adressage-2 table-modes-adressage)))
-          valeur-1 valeur-2)))
+    (let* ((opcode (position1 operateur table-operateurs))
+           (opcode (ash opcode nb-modes-adressage))
+           (opcode (logior opcode (position1 mode-adressage-1 table-modes-adressage)))
+           (opcode (ash opcode nb-modes-adressage))
+           (opcode (logior opcode (position1 mode-adressage-2 table-modes-adressage))))
+      (split-bytes opcode nb-opcode-bytes
+                   (list valeur-1 valeur-2)))))
 
 ;;TODO : Faire les registres
 (defun dump-vm (vm)

@@ -1,3 +1,4 @@
+;; todo : utiliser copy-seq à la place.
 (defun copytree (l)
   (if (atom l)
       l
