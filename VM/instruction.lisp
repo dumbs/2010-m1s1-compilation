@@ -43,6 +43,81 @@
 (defun set-register (vm register value) (send vm 'set-register register value))
 (defun size-memory (vm) (send vm 'size-memory))
 
+;;TODO : Penser a ajouter une table des opcodes
+
+(defvar table-operateurs
+  '(load store move add sub mult div incr decr push pop
+    jmp jsr rtn cmp jeq jpg jpp jpe jge jne nop halt))
+
+(defvar table-modes-adressage
+  '(constant direct registre indexé indirect indirect-registre indirect-indexé))
+
+(defun nb-bits (n)
+  "Retourne ne nombre de bits nécessaires pour stocker n en base 2."
+  (ceiling (log n 2)))
+
+(defun ceiling-power-2 (n)
+  "Retourne la puissance de deux immédiatement supérieure ou égale à n"
+  (expt 2 (nb-bits n)))
+
+(defvar mult-mode-adressage-1
+  (ceiling-power-2 (+ 1 (length table-operateurs)))
+  "opcode = (operateur + (* mult-mode-adressage-1 mode-adressage-1) ...)")
+
+(defvar mult-mode-adressage-2
+  (* mult-mode-adressage-1 (ceiling-power-2 (+ 1 (length table-modes-adressage))))
+  "opcode = (operateur + ... (* mult-mode-adressage-2 mode-adressage-2))")
+
+(defvar table-opcodes
+  (let* ((isn-number 0)
+         (mult-maddr-1 (ceiling-power-2 (+ 1 (length table-operateurs))))
+         (mult-maddr-2 (* mult-maddr-1 (ceiling-power-2 (+ 1 (length table-modes-adressage))))))
+    (mapcar (lambda (isn)
+              (setq isn-number (+ 1 isn-number))
+              (let ((maddr-1-number 0))
+                (mapcar (lambda (maddr-1)
+                          (setq maddr-1-number (+ 1 maddr-1-number))
+                          (let ((maddr-2-number 0))
+                            (mapcar (lambda (maddr-2)
+                                      (setq maddr-2-number (+ 1 maddr-2-number))
+                                      (cons (list isn
+                                                  maddr-1
+                                                  maddr-2)
+                                            (+ isn-number
+                                               (* maddr-1-number mult-maddr-1)
+                                               (* maddr-2-number mult-maddr-2))))
+                                    table-modes-adressage)))
+                        table-modes-adressage)))
+            table-operateurs)))
+
+(defun position1 (x l) (+ 1 (position x l)))
+
+(defun split-bytes (n nmax)
+  "Découpe n en plusieurs valeurs inférieures à 256, avec nmax la valeur maximum
+   (qui assure qu'on a toujours le même nombre de valeurs renvoyées)."
+  (if (< nmax 256)
+      (list n)
+      (cons (ldb (byte 8 0) n) (split-bytes (floor
+  )
+
+(defun isn-decode (opcode)
+  opcode)
+
+;; Instruction est une liste
+;; '(operateur mode-adressage-1 valeur-1 mode-adressage-2 valeur-2)
+;; Si l'instruction ne prend qu'un (ou zéro) paramètre, les champs
+;; correspondants sont mis à nil.
+(defun isn-encode (instruction)
+  (let ((operateur (first instruction))
+        (mode-adressage-1 (second instruction))
+        (valeur-1 (third instruction))
+        (mode-adressage-2 (fourth instruction))
+        (valeur-2 (fifth instruction)))
+    (list (+ (position1 operateur table-operateurs)
+             (* mult-mode-adressage-1 (position1 mode-adressage-1 table-modes-adressage))
+             (* mult-mode-adressage-2 (position1 mode-adressage-2 table-modes-adressage)))
+          valeur-1 valeur-2)))
+
 ;;TODO : Faire les registres
 (defun dump-vm (vm)
   (dotimes (i (size-memory vm))
@@ -54,13 +129,6 @@
             (get-register-list vm))
     (let ((isn (get-memory vm (get-register vm 'PC))))
       (format T "~&Current instruction : ~2,'0x ~a" isn (isn-decode isn))))
-
-;;TODO : Penser a ajouter une table des opcodes
-(defun isn-decode (opcode)
-  opcode)
-
-(defun isn-encode (instruction)
-  instruction)
 
 (defun ISN-LOAD (vm address register)
   (set-register vm register (get-memory vm address)))
@@ -128,7 +196,7 @@
 (defun ISN-JPE (vm dst)
   (ISN--JCOND- t t nil vm dst))
 
-(defun ISN-JPE (vm dst)
+(defun ISN-JGE (vm dst)
   (ISN--JCOND- nil t t vm dst))
 
 (defun ISN-JNE (vm dst)

@@ -55,6 +55,14 @@ Le paramètre ENV-STACK est toute la pile d'environnements."
 	      (cdar env-stack)))
   env-stack)
 
+(defun get-binding (env-stack name)
+  "Récupère la liaison correspondant à NAME ."
+  (if (atom env-stack)
+      nil ; TODO : Penser à peut-être mettre un warn ou error.
+  (let ((ass (assoc name (cdar env-stack))))
+    (if ass ass
+      (get-binding (cdr env-stack) name)))))
+
 (defun set-binding (env-stack name new-value)
   "Modifie la valeur associée à une liaison."
   (setf (cdr (get-binding env-stack name))
@@ -64,14 +72,6 @@ Le paramètre ENV-STACK est toute la pile d'environnements."
 (defun get-binding-value (env-stack name)
   "Récupère la valeur associée a NAME ."
   (cdr (get-binding env-stack name)))
-
-(defun get-binding (env-stack name)
-  "Récupère la liaison correspondant à NAME ."
-  (if (atom env-stack)
-      nil ; TODO : Penser à peut-être mettre un warn ou error.
-  (let ((ass (assoc name (cdar env-stack))))
-    (if ass ass
-      (get-binding (cdr env-stack) name)))))
 
 (defun top-level-env-stack (env-stack)
   "Recupere la pile d'environnement contenant uniquement
