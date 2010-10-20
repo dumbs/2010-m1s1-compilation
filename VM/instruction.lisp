@@ -43,6 +43,7 @@
 (defun set-register (vm register value) (send vm 'set-register register value))
 (defun size-memory (vm) (send vm 'size-memory))
 
+;;TODO : Rajouter une fonction resolve pour resoudre les differents modes d'adresssage.
 ;; TODO : Penser a ajouter une table des opcodes
 
 (defvar table-operateurs
@@ -193,6 +194,7 @@ et termine par la liste APPEND."
 
 ;;Test Unitaire
 ;; TODO : Faire deftestvar
+;; TODO : Finir le test unitaire
 (load "test-unitaire")
 (defvar vm (make-vm (+ 10 (random 10))))
 (defvar t-address (random (size-memory vm)))
@@ -209,5 +211,6 @@ et termine par la liste APPEND."
   (progn (ISN-STORE vm 'R0 t-address)
          (get-memory vm t-address))
   (get-register vm 'R0))
+
 
 (dump-vm vm)
