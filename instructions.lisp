@@ -221,18 +221,52 @@ et termine par la liste APPEND."
          (get-register vm 'R1))
   t-value)
 
-(set-register vm 'R0 21)
-(set-register vm 'R1 21)
 (deftest virtual-machine
-  (progn (ISN-ADD vm 'R0 'R1)
+  (progn (set-register vm 'R0 21)
+         (set-register vm 'R1 21)
+         (ISN-ADD vm 'R0 'R1)
          (get-register vm 'R1))
   42)
 
-(set-register vm 'R0 21)
-(set-register vm 'R1 21)
 (deftest virtual-machine
-  (progn (ISN-SUB vm 'R0 'R1)
+  (progn (set-register vm 'R0 21)
+         (set-register vm 'R1 21)
+         (ISN-SUB vm 'R0 'R1)
          (get-register vm 'R1))
   0)
+
+(deftest virtual-machine
+  (progn (set-register vm 'R0 21)
+         (set-register vm 'R1 2)
+         (ISN-MULT vm 'R0 'R1)
+         (get-register vm 'R1))
+  42)
+
+(deftest virtual-machine
+  (progn (set-register vm 'R0 2)
+         (set-register vm 'R1 84)
+         (ISN-DIV vm 'R0 'R1)
+         (get-register vm 'R1))
+  42)
+
+(deftest virtual-machine
+  (progn (set-register vm 'R0 0)
+         (ISN-INCR vm 'R0)
+         (get-register vm 'R0))
+  1)
+
+(deftest virtual-machine
+  (progn (set-register vm 'R0 1)
+         (ISN-DECR vm 'R0)
+         (get-register vm 'R0))
+  0)
+
+(deftest virtual-machine
+  (progn (set-register vm 'R1 42)
+         (ISN-PUSH vm 'R1)
+         (get-memory vm (get-register vm 'SP)))
+  42)
+
+
 
 (dump-vm vm)

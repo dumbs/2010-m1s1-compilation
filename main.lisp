@@ -5,7 +5,7 @@
     (cons (copytree (car l))
           (copytree (cdr l)))))
 (load "environnement")
-(load "VM/instruction")
+(load "instructions")
 ;; ...
 (run-test t)
 ;(print-env-stack exemple-env-stack)
