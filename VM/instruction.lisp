@@ -16,6 +16,8 @@
                       (BP . 0)
                       ;; Sommet de la pile.
                       (SP . 0)
+                      ;; Sommet du cadre de la pile
+                      (FP . 0)
                       ;; Pointeur de code : fin de la mémoire.
                       (PC . ,(- size 1))
                       ;; registres booléens = faux (nil).
@@ -111,7 +113,7 @@ et termine par la liste APPEND."
                 (format T "~&~4a ~2,'0x ~3d" (string reg) val val)))
             (get-register-list vm))
     (let ((isn (get-memory vm (get-register vm 'PC))))
-      (format T "~&Current instruction : ~2,'0x ~a" isn (isn-decode isn))))
+      (format T "~&Current instruction : ~2,'0x ~a~&" isn (isn-decode isn))))
 
 (defun ISN-LOAD (vm address register)
   (set-register vm register (get-memory vm address)))
@@ -199,8 +201,8 @@ et termine par la liste APPEND."
 (defvar vm (make-vm (+ 10 (random 10))))
 (defvar t-address (random (size-memory vm)))
 (defvar t-value (random 42))
-(set-memory vm t-address t-value)
 
+(set-memory vm t-address t-value)
 (deftest virtual-machine
   (progn (ISN-LOAD vm t-address 'R0)
          (get-register vm 'R0))
@@ -212,5 +214,25 @@ et termine par la liste APPEND."
          (get-memory vm t-address))
   (get-register vm 'R0))
 
+(setf t-value (random 42))
+(set-register vm 'R0 t-value)
+(deftest virtual-machine
+  (progn (ISN-MOVE vm 'R0 'R1)
+         (get-register vm 'R1))
+  t-value)
+
+(set-register vm 'R0 21)
+(set-register vm 'R1 21)
+(deftest virtual-machine
+  (progn (ISN-ADD vm 'R0 'R1)
+         (get-register vm 'R1))
+  42)
+
+(set-register vm 'R0 21)
+(set-register vm 'R1 21)
+(deftest virtual-machine
+  (progn (ISN-SUB vm 'R0 'R1)
+         (get-register vm 'R1))
+  0)
 
 (dump-vm vm)
