@@ -101,7 +101,12 @@ et termine par la liste APPEND."
            (opcode (ash opcode nb-modes-adressage))
            (opcode (logior opcode (position1 mode-adressage-2 table-modes-adressage))))
       (split-bytes opcode nb-opcode-bytes
-                   (list valeur-1 valeur-2)))))
+                   (list (if (eq mode-adressage-1 'registre)
+							 (position1 valeur1 (get-register-list (make-vm 1)))
+						   valeur1)
+						 (if (eq mode-adressage-2 'registre)
+							 (position1 valeur2 (get-register-list (make-vm 1)))
+						   valeur2))))))
 
 ;;TODO : Faire les registres
 (defun dump-vm (vm)
