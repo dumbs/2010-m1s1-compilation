@@ -1,5 +1,42 @@
 ;; TODO : exploser tout ça en plein de petites fonctions, c'est trop gros...
 ;; Mutation cons.
+(defvar all-tests nil "Liste de tous les tests")
+
+(defmacro deftest (module test expected)
+  `(progn
+     (if (not (assoc ',module all-tests))
+	 (setf all-tests (cons '(,module . nil) all-tests)))
+     (setf (cdr (assoc ',module all-tests))
+	   (cons
+	    (lambda ()
+	      (let ((res ,expected))
+		(if (equal ,test res)
+		    (progn
+		      (format t "~&    [SUCCESS] ~w~&" ',test)
+		      t)
+		  (progn
+		    (format t "~&    [FAILURE] Test     : ~w~&"
+			    ',test)
+		    (format t "~&              got      : ~w~&"
+			    res)
+		    (format t "~&              expected : ~w~&"
+			    ',expected)
+		    nil))))
+	    (cdr (assoc ',module all-tests))))))
+
+(defmacro run-tests (&rest modules)
+  (if (or (not modules)
+	  (eq (car modules) t))
+      `(real-run-tests ',(mapcar #'car all-tests))
+  `(real-run-tests ',modules)))
+
+(defun real-run-tests (modules)
+  (mapcar (lambda (module)
+	    (if (member (car module) modules)
+		(mapcar (cdr module) #'funcall)))
+	  all-tests
+  )
+
 (let ((tests nil))
   (defmacro deftest (module test expected)
     (if (not (assoc module tests))
