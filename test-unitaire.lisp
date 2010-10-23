@@ -2,96 +2,79 @@
 ;; Mutation cons.
 (defvar all-tests nil "Liste de tous les tests")
 
+;(defmacro eval-in-env (expr env)
+;  `(eval-in-env-2 ',expr ,env))
+;
+;(defun eval-in-env-2 (qexpr env)
+;  '(eval `(let ,env ,qexpr)))
+
 (defmacro deftest (module test expected)
   `(progn
      (if (not (assoc ',module all-tests))
-	 (setf all-tests (cons '(,module . nil) all-tests)))
-     (setf (cdr (assoc ',module all-tests))
-	   (cons
-	    (lambda ()
-	      (let ((res ,expected))
-		(if (equal ,test res)
-		    (progn
-		      (format t "~&    [SUCCESS] ~w~&" ',test)
-		      t)
-		  (progn
-		    (format t "~&    [FAILURE] Test     : ~w~&"
-			    ',test)
-		    (format t "~&              got      : ~w~&"
-			    res)
-		    (format t "~&              expected : ~w~&"
-			    ',expected)
-		    nil))))
-	    (cdr (assoc ',module all-tests))))))
+         (setf all-tests (cons (list ',module nil nil) all-tests)))
+     (push (lambda ()
+             (let* ((vars (second (assoc ',module all-tests)))
+                    (_test ',test)
+                    (_expected ',expected)
+                    ;; Les "eval" ci-dessous exécutent :
+                    ;; (let ((var1 val1) (var2 val2) ...) ;; On définit les
+                    ;;                                    ;; variables de deftestvar.
+                    ;;   var1 var2 ... ;; On "utilise" les variables pour
+                    ;;                 ;; éviter le unused variable warning
+                    ;;   corps-du-test) ;; On évalue le corps du test dans 
+                    ;;                  ;; un environement où les deftestvar
+                    ;;                  ;; sont accessibles.
+                    (res (eval `(let ,vars ,@(mapcar #'car vars) ,_test)))
+                    (exp (eval `(let ,vars ,@(mapcar #'car vars) ,_expected))))
+               (if (equal res exp)
+                   (progn
+                     (format t "~&    [SUCCESS] ~w~&" ',test)
+                     t)
+                   (progn
+                     (format t "~&    [FAILURE] Test     : ~w~&" ',test)
+                     (format t "~&              got      : ~w~&" (list res (random 10)))
+                     (format t "~&              expected : ~w~&" exp)
+                     nil))))
+           (third (assoc ',module all-tests)))))
+
+(defmacro deftestvar (module name value)
+  `(progn
+     (if (not (assoc ',module all-tests))
+         (setf all-tests (cons (list ',module nil nil) all-tests)))
+     (push (list ',name ',value)
+           (second (assoc ',module all-tests)))))
 
 (defmacro run-tests (&rest modules)
   (if (or (not modules)
-	  (eq (car modules) t))
-      `(real-run-tests ',(mapcar #'car all-tests))
-  `(real-run-tests ',modules)))
+          (eq (car modules) t))
+      `(real-run-tests all-tests)
+      `(real-run-tests (remove-if-not (lambda (x)
+                                        (member (car x) ',modules))
+                                      all-tests))))
 
+;; OMFG that's not lisp, that's english o_O
 (defun real-run-tests (modules)
-  (mapcar (lambda (module)
-	    (if (member (car module) modules)
-		(mapcar (cdr module) #'funcall)))
-	  all-tests
-  )
+  (loop
+     for (module vars tests) in (reverse modules)
+     for nb-fail = (loop
+                      initially (format t "~&Module ~w :~&" module)
+                      for test
+                      in (reverse tests)
+                      count (not (funcall test)))
+     when (> nb-fail 0)
+       do (format t "Module ~w failed ~w tests. Stopping.~&" module nb-fail)
+       and return nil
+     finally (return t)))
 
-(let ((tests nil))
-  (defmacro deftest (module test expected)
-    (if (not (assoc module tests))
-        (setf tests (cons `(,module . (() . ())) tests)))
-    (let ((mod-tests (assoc module tests)))
-      (setf (cddr mod-tests)
-            (cons (cons test expected)
-                  (cddr mod-tests))))
-    nil)
-  (defmacro run-test (&rest modules)
-    (let ((failures 0)
-          (modules (if (eq T (car modules))
-                       (mapcar #'car tests)
-                               modules)))
-      (if (every
-		   (lambda (mod)
-			 (if (member (car mod) modules)
-				 (progn
-				   (format t "~&Module ~w :~&" (car mod))
-				   (let ((vars (cadr mod)))
-					 (mapcar (lambda (test)
-							   (let* ((res (eval `(let ,vars ,(car test))))
-									  (expect (eval `(let ,vars ,(cdr test)))))
-								 (if (equal expect res)
-									 (format t "~&    [SUCCESS] ~w~&" (car test))
-								   (progn (format t "    [FAILURE] Test     : ~w~&              got      : ~w~&              expected : ~w~&" (car test) res expect)
-										  (setf failures (+ failures 1))))))
-							 (reverse (cddr mod))))))
-			 (if (not (= failures 0))
-				 (format t "Module ~w failed ~w tests. Stopping.~&" (car mod) failures))
-			 (= failures 0))
-		   tests)
-          (progn (format t "All modules passed all tests successfully.~&")
-                 t)
-          nil)))
-  (defun show-test ()
-    tests)
-  (defmacro deftestvar (module nom valeur)
-    (if (not (assoc module tests))
-        (setf tests (cons `(,module . (() . ())) tests)))
-    (let ((mod-vars (assoc module tests)))
-      (setf (cadr mod-vars)
-            (cons (list nom valeur)
-                  (cadr mod-vars))))
-	nil))
+(defun erase-tests ()
+  (setf all-tests nil))
 
-;; Test de debugage du test unitaire
-;(deftest environnement nil nil)
-;(deftest environnement (eq 42 42) T) ;; Test qui fail
-;(deftest vm T T)
-;(deftest environnement2 (eq 42 42) nil)
-;(show-test)
-;(run-test environnement)
-;; TODO : every ne mappe pas la liste dans le bon ordre, et vm est
-;; exécuté avant environnement quel que soit l'ordre des paramètres.
-;(run-test environnement vm)
-;(run-test environnement vm environnement2)
-;(run-test t) ;; t => tous
+(deftest moda nil nil)
+(deftest moda (eq 42 42) t)
+(deftest modb (eq 'a 'a) t)
+(deftest modb (eq 'a 'b) nil)
+(deftest modb (eq 'a 'c) t)
+(deftest modb 1 1)
+(deftest modc (+ 1 2) (+ 2 1))
+(deftestvar modc x 1)
+(deftest modc (+ x 2) (+ 2 1))
