@@ -19,7 +19,8 @@
 
 ;; Exemple de la structure env-stack après création de deux
 ;; environnements en plus du top-level et ajout de plusieurs laisons.
-(defvar exemple-env-stack 
+(load "test-unitaire")
+(deftestvar environnement exemple-env-stack 
   '(;; Environnement le plus bas (dernières définitions par ordre
     ;; chronologique).
     ("DEFUN"
@@ -100,12 +101,11 @@ l'environnement top-level."
            (print-env-stack (cdr env-stack)))))
 
 ;;Test Unitaire
-(load "test-unitaire")
 (deftest environnement
   (push-new-env (empty-env-stack) "TEST")
   '(("TEST") ("TOP-LEVEL")))
 (deftest environnement
-  (push-new-env (copytree exemple-env-stack) "TEST")
+  (push-new-env exemple-env-stack "TEST")
   (cons '("TEST") exemple-env-stack))
 (deftest environnement
   (add-binding (empty-env-stack) 'x 42)
@@ -122,22 +122,22 @@ l'environnement top-level."
   (set-binding (add-binding (empty-env-stack) 'x 42) 'x .42)
   '(("TOP-LEVEL" (x . .42))))
 (deftest environnement
-  (get-binding (copytree '(("TOP-LEVEL" (X . 42))))
+  (get-binding '(("TOP-LEVEL" (X . 42)))
                'x)
   '(x . 42))
 (deftest environnement
-  (get-binding-value (copytree '(("FOO" (Z . 42)) ("TOP-LEVEL" (x . 42))))
+  (get-binding-value '(("FOO" (Z . 42)) ("TOP-LEVEL" (x . 42)))
                      'x)
   42)
 (deftest environnement
-  (top-level-env-stack (copytree '(("BAR" (X . 42))
-                                   ("TOP-LEVEL" (X . 24) (Z . 73)))))
+  (top-level-env-stack '(("BAR" (X . 42))
+                         ("TOP-LEVEL" (X . 24) (Z . 73))))
   '(("TOP-LEVEL" (X . 24) (Z . 73))))
 (deftest environnement
-  (add-top-level-binding (copytree '(("TEST" (X . 42)) ("TOP-LEVEL" (Y . 56))))
+  (add-top-level-binding (copy-tree '(("TEST" (X . 42)) ("TOP-LEVEL" (Y . 56))))
                          'Z 78)
   '(("TEST" (X . 42)) ("TOP-LEVEL" (Z . 78) (Y . 56))))
 (deftest environnement
-  (set-top-level-binding (copytree '(("LEVEL2" (X . 42)) ("TOP-LEVEL" (Y . 56))))
+  (set-top-level-binding (copy-tree '(("LEVEL2" (X . 42)) ("TOP-LEVEL" (Y . 56))))
                          'Y "42")
   '(("LEVEL2" (X . 42)) ("TOP-LEVEL" (Y . "42"))))

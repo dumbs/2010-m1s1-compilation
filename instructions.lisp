@@ -203,75 +203,70 @@ et termine par la liste APPEND."
 ;; TODO : Faire deftestvar
 ;; TODO : Finir le test unitaire
 (load "test-unitaire")
-(defvar vm (make-vm (+ 10 (random 10))))
-(defvar t-address (random (size-memory vm)))
-(defvar t-value (random 42))
+(deftestvar virtual-machine t-r0-value (+ 1 (random 42))) ;; r0 > 0 pour la division.
+(deftestvar virtual-machine t-r1-value (random 42))
+(deftestvar virtual-machine t-m-value (random 42))
+(deftestvar virtual-machine t-vm-size (+ 10 (random 10)))
+(deftestvar virtual-machine t-adress (random t-vm-size))
+(deftestvar virtual-machine vm
+  (progn
+	(make-vm t-vm-size)
+	(set-register vm 'R0 t-r0-value)
+	(set-memory vm t-adress t-m-value)))
 
-(set-memory vm t-address t-value)
 (deftest virtual-machine
   (progn (ISN-LOAD vm t-address 'R0)
          (get-register vm 'R0))
-  (get-memory vm t-address))
+  t-m-value)
 
-(setf t-address (random (size-memory vm)))
 (deftest virtual-machine
   (progn (ISN-STORE vm 'R0 t-address)
          (get-memory vm t-address))
-  (get-register vm 'R0))
+  t-r0-value)
 
-(setf t-value (random 42))
-(set-register vm 'R0 t-value)
 (deftest virtual-machine
   (progn (ISN-MOVE vm 'R0 'R1)
          (get-register vm 'R1))
-  t-value)
+  t-r0-value)
 
 (deftest virtual-machine
-  (progn (set-register vm 'R0 21)
-         (set-register vm 'R1 21)
-         (ISN-ADD vm 'R0 'R1)
+  (progn (ISN-ADD vm 'R0 'R1)
          (get-register vm 'R1))
-  42)
+  (+ t-r1-value t-r0-value))
 
 (deftest virtual-machine
-  (progn (set-register vm 'R0 21)
-         (set-register vm 'R1 21)
-         (ISN-SUB vm 'R0 'R1)
+  (progn (ISN-SUB vm 'R0 'R1)
          (get-register vm 'R1))
-  0)
+  (- t-r1-value t-r0-value))
 
 (deftest virtual-machine
-  (progn (set-register vm 'R0 21)
-         (set-register vm 'R1 2)
-         (ISN-MULT vm 'R0 'R1)
+  (progn
+	;; Multiplication par un petit nombre (on ne
+	;; gère pas d'éventuels overflows pour l'instant).
+	(set-register vm 'R0 2)
+	(ISN-MULT vm 'R0 'R1)
+	(get-register vm 'R1))
+  (* 2 t-r0-value))
+
+(deftest virtual-machine
+  (progn (ISN-DIV vm 'R0 'R1) ;; R0 > 0 (voir t-r0-value ci-dessus).
          (get-register vm 'R1))
-  42)
+  (/ t-r1-value t-r0-value))
 
 (deftest virtual-machine
-  (progn (set-register vm 'R0 2)
-         (set-register vm 'R1 84)
-         (ISN-DIV vm 'R0 'R1)
+  (progn (ISN-INCR vm 'R1)
          (get-register vm 'R1))
-  42)
+  (+ t-r1-value 1))
 
 (deftest virtual-machine
-  (progn (set-register vm 'R0 0)
-         (ISN-INCR vm 'R0)
+  (progn (ISN-DECR vm 'R0) ;; R0 > 0 (on ne gère pas les négatifs)
          (get-register vm 'R0))
-  1)
+  (- t-r0-value 1))
 
 (deftest virtual-machine
-  (progn (set-register vm 'R0 1)
-         (ISN-DECR vm 'R0)
-         (get-register vm 'R0))
-  0)
-
-(deftest virtual-machine
-  (progn (set-register vm 'R1 42)
-         (ISN-PUSH vm 'R1)
+  (progn (ISN-PUSH vm 'R1)
          (get-memory vm (get-register vm 'SP)))
-  42)
-
+  (t-r1-value))
 
 
 (dump-vm vm)
