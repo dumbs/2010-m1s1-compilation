@@ -6,6 +6,7 @@
           (copytree (cdr l)))))
 (load "environnement")
 (load "instructions")
+(load "lisp2li")
 ;; ...
-(run-test t)
+(run-tests t)
 ;(print-env-stack exemple-env-stack)
