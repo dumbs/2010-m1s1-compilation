@@ -1,30 +1,48 @@
 ;; TODO : reste a gerer les defuns, les let, les lambda expression, les setf, les progn, ...
 (defun lisp2li (expr env)
-  (cond ((and (atom expr) (constantp expr)) ;;cas des litteraux
+  (cond ((and (atom expr) (constantp expr)) ; literaux
          (cons :lit expr))
-        ((atom expr) ;;cas des variables
+        ((symbolp expr) ; symboles
          (let ((cell (get-binding env expr)))
            (if cell
                (cons :var (car cell))
              (warn "Variable ~S unknown" (car expr)))))
-        ((eq 'if (car expr)) ;;cas des if
+        ((and (consp (car expr)) ; λ-expressions
+                                 ; => recursion sur arguments
+                                 ; => construction environnement
+                                 ; => recursion sur corps de la λ-fonction
+              (eq 'lambda (caar expr)))
+         (error "Lambda expression NYI"))
+        ((not (symbolp (car expr)))
+         (warn "~S isn't a symbol" (car expr)))
+        ((not (fboundp (car expr)))
+         (list :unknown expr env))
+        ((eq 'if (car expr)) ; if
          (list :if
                (lisp2li (second expr) env)
                (lisp2li (third expr) env)
                (lisp2li (fourth expr) env)))
-        ((eq 'quote (car expr)) ;;cas des quotes
+        ((eq 'quote (car expr)) ;; quotes
          (cons :lit (second expr)))
         ((eq 'defun (car expr)) ;; TODO : a verifier que le cas de defun est bien gerer comme on le veux
          (cons :call (cons 'add-binding (list (list :call 'push-new-env `(:lit . ,env) '(:lit . "DEFUN"))
                                               (cons :lit (second expr))
                                               (cons :lit (cons (length (third expr))
                                                                (lisp2li (fourth expr)
-                                                                        (make-stat-env (push-new-env env "INTER") (third expr)))))))))
-        ((and (fboundp (car expr)) (eq (macroexpand-1 expr) expr)) ;;cas des fonctions
+                                                                        (make-stat-env env (third expr)))))))))
+        ((eq 'setq (car expr))
+         (cons :call (cons 'set-binding (list `(:lit . ,env)
+                                              (cons :lit (second expr))
+                                              (cons :lit (third expr))))))
+        ((macro-function (car expr))
+         (lisp2li (macroexpand-1 expr) env)) ; macros
+        ((not (special-operator-p (car expr))) ; fonctions normales. (Attention) sur sbcl special-form-p ne marche pas il faut utiliser special-operator-p
+                                           ; => recursion sur tous les arguments
+                                           ; => eventuellement construction d'environnement
+                                           ; => et analyse du corps de la fonction appelee
          (cons :call (cons (first expr) (map-lisp2li (cdr expr) env))))
-        ((and (fboundp (car expr)) (not (eq (macroexpand-1 expr) expr))) ;;cas des macros
-         (lisp2li (macroexpand-1 expr) env))
-        (T (list :unknown expr env))
+        (T
+         (error "special forme NYI ~S" (car expr)))
         ))
 
 (defun map-lisp2li (expr env)
@@ -37,26 +55,18 @@
 ;; Test unitaire
 (load "test-unitaire")
 ;(erase-tests)
-;; test des litteraux
-(deftest lisp2li
-  (lisp2li 1 ())
-  '(:lit . 1))
 
 (deftest lisp2li
-  (lisp2li 2.3 ())
-  '(:lit . 2.3))
+  (lisp2li '3 ())
+  '(:lit . 3))
 
 (deftest lisp2li
-  (lisp2li "abc" ())
-  '(:lit . "abc"))
+  (lisp2li ''x ())
+  '(:lit . x))
 
 (deftest lisp2li
-  (lisp2li T ())
-  '(:lit . T))
-
-(deftest lisp2li
-  (lisp2li nil ())
-  '(:lit . nil))
+  (lisp2li ''(1 2 3) ())
+  '(:lit 1 2 3))
 
 ;; test des if
 (deftest lisp2li
@@ -74,7 +84,7 @@
 
 (deftest lisp2li
   (lisp2li '(and 1 1) ())
-  '(:if (:lit . 1) (:call the (:lit . T) (:lit . 1)) (:lit . nil)))
+  '(:lit . 1))
 
 ;; test des variables
 (deftest lisp2li
@@ -105,13 +115,17 @@
   '(:IF (:CALL EQ (:LIT . "abc") (:LIT . 1)) (:LIT . "abc") (:LIT . 2)))
 
 (deftest lisp2li
-  (lisp2li '(if (and (eq 1 1) (= 2 2)) (foo 1 2) (bar 3 4)) ())
-  '(:if (:if (:call eq (:lit . 1) (:lit . 1))
-             (:call the (:lit . T) (:call = (:lit . 2) (:lit . 2))) (:lit . nil))
-        (:unknown (foo 1 2) nil) (:unknown (bar 3 4) nil)))
-
-(deftest lisp2li
   (lisp2li '(foo 1 1) ())
   '(:unknown (foo 1 1) ()))
+
+(deftest lisp2li
+  (lisp2li '(if (and (eq 1 1) (= 2 2)) (foo 1 2) (bar 3 4)) ())
+  '(:IF (:CALL = (:LIT . 2) (:LIT . 2)) (:UNKNOWN (FOO 1 2) NIL) (:UNKNOWN (BAR 3 4) NIL)))
+
+;; Test sur le setq
+(deftestvar lisp2li env (add-binding (empty-env-stack) 'x 1))
+(deftest lisp2li
+  (lisp2li '(setq x 2) env)
+  '(:call set-binding (:lit (("TOP-LEVEL" (x . 1)))) (:lit . x) (:lit . 2)))
 
 ;(run-tests t)
