@@ -273,4 +273,3 @@ et termine par la liste APPEND."
   42)
 
 
-(dump-vm vm)

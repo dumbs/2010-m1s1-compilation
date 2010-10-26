@@ -14,6 +14,12 @@
                (lisp2li (fourth expr) env)))
         ((eq 'quote (car expr)) ;;cas des quotes
          (cons :lit (second expr)))
+        ((eq 'defun (car expr)) ;; TODO : a verifier que le cas de defun est bien gerer comme on le veux
+         (cons :call (cons 'add-binding (list (list :call 'push-new-env `(:lit . ,env) '(:lit . "DEFUN"))
+                                              (cons :lit (second expr))
+                                              (cons :lit (cons (length (third expr))
+                                                               (lisp2li (fourth expr)
+                                                                        (make-stat-env (push-new-env env "INTER") (third expr)))))))))
         ((and (fboundp (car expr)) (eq (macroexpand-1 expr) expr)) ;;cas des fonctions
          (cons :call (cons (first expr) (map-lisp2li (cdr expr) env))))
         ((and (fboundp (car expr)) (not (eq (macroexpand-1 expr) expr))) ;;cas des macros
@@ -23,6 +29,10 @@
 
 (defun map-lisp2li (expr env)
   (mapcar (lambda (x) (lisp2li x env)) expr))
+
+(defun make-stat-env (env params) ;; TODO : Verifier si on ne doit pas plutot chercher s'il existe pas deja un environnement avec la valeur et le mettre plutot que nil.
+  (mapcar (lambda (x) (add-binding env x nil)) params)
+  env)
 
 ;; Test unitaire
 (load "test-unitaire")
