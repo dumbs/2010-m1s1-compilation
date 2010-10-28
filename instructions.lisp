@@ -156,7 +156,7 @@ et termine par la liste APPEND."
 (defun ISN-JMP (vm dst)
   (set-register vm 'PC (- dst 1)))
 
-(defun JSR (vm dst)
+(defun ISN-JSR (vm dst)
   (ISN-PUSH vm 'PC)
   (ISN-JMP vm dst))
 
@@ -268,5 +268,3 @@ et termine par la liste APPEND."
          (get-memory vm (get-register vm 'SP)))
   (t-r1-value))
 
-
-(dump-vm vm)
