@@ -1,5 +1,7 @@
 ;; TODO : reste a gerer les defuns, les let, les lambda expression, les setf, les progn, ...
 (defun lisp2li (expr env)
+  "Convertis le code LISP en un code intermédiaire reconnu
+par le compilateur et par l’interpréteur"
   (cond ((and (atom expr) (constantp expr)) ; literaux
          (cons :lit expr))
         ((symbolp expr) ; symboles
