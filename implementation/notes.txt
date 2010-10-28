@@ -56,31 +56,35 @@ etc... (voir cltl et implementation/types.lisp).
 Pour connaître le type de chaque objet, on utilise les n premiers bits,
 plus les relations d'inclusion (voir implementation/types.lisp).
 Par ex (tous les mots font 32 bits) :
-0...     cons (les 31 bits restants sont l'adresse du car, puis 32 bits pour l'adresse du cdr).
-         Si tout est à 0 (64 bits tous à zéro), c'est nil
-100...   fixnum (29 bits)
-10100... caractères unicode sur 8 bits   ;; TODO : y a-t-il des caractères unicode dans le standard ?
-10101... caractères unicode sur 16 bit
-110...   symbol
-111...   Tout le reste :
-11100000... array
-11100001... complex
-11100010... bignum
-11100011... rien.
-111001xx... floats (xx : 00 = short, 01 = single, 10 = double, 11 = long)
-11101000... hash-table
-11101001... readtable
-11101010... package
-11101011... pathname
-11101100... stream
-11101101... random-state
-11101110... function (attention: d'autes objets peuvent être des fonctions)
 
+1ers bits   Passage par pointeur / valeur     Description
+===============================================================
+0...        P cons (les 31 bits restants sont l'adresse du car, puis 32 bits pour l'adresse du cdr).
+              Si tout est à 0 (64 bits tous à zéro), c'est nil
+100...      V fixnum (29 bits)
+10100...    V caractères unicode sur 8 bits   ;; TODO : y a-t-il des caractères unicode dans le standard ?
+10101...    V caractères unicode sur 16 bit
+110...      P symbol
+111...        Tout le reste :
+11100000... P   array
+11100001... P   complex
+11100010... P   bignum
+11100011... P   ratio
+111001xx... ?   floats (xx : 00 = short, 01 = single, 10 = double, 11 = long)
+11101000... P   hash-table
+11101001... P   readtable
+11101010... P   package
+11101011... P   pathname
+11101100... P   stream
+11101101... P   random-state
+11101110... P   function (attention: d'autes objets peuvent être des fonctions)
+
+Comme il n'y a très peu de valeurs qui pourraient être passées par valeur, je suggère qu'on passe tout par pointeur.
 
 Les symboles
 ============
 CLTL 2
-Un symbole, (par ex 'foo), est un "objet" (commençant par 010 dans l'exemple ci-dessus).
+Un symbole, (par ex 'foo), est un "objet" (commençant par 110 dans l'exemple ci-dessus).
 Lorsqu'on écrit 'foo, c'est remplacé par un pointeur sur cet objet.
 Les symboles ont une liste de propriétés (qu'on implémentera par une alist)
 Les symboles ont un nom (qu'on implémentera par une chaîne de caractères).
