@@ -1,0 +1,88 @@
+Types
+=====
+CLTL 2 et 2.15
+Les types LISP sont organisés avec un héritage multiple.
+Les objets ont des types, pas les variables.
+
+Voici la hiérarchie des types (CLTL 2.15) :
+
+le type t (type, pas symbole) est le super-type (comme Object en Java).
+Tous lesobjets sont de type t.
+
+le type nil (type, pas symbole) est le super-sous-type.
+Aucun objet n'est de type nil.
+Donc c'est un sous-type de tous les autres types.
+
+Les types suivants sont disjoints (un objet ne peut pas être dans 2 de ces types à la fois) :
+cons symbol array number character hash-table readtable package pathname stream random-state
+
+De plus, un type créé par defstruct ou defclass est disjoint de chacun des types ci-dessus.
+
+function est disjoint de cons symbol array number character.
+Par contre function n'est pas disjoint de list :
+ ;; Intersection non nulle
+ (functionp '(lambda (x) x)) => t
+ (listp '(lambda (x) x)) => t
+ ;; function pas inclus dans list
+ (functionp #'car) => t
+ (listp #'car) => nil
+ ;; list pas inclus dans function
+ (functionp '(1 2 3)) => nil
+ (listp '(1 2 3)) => t
+
+Hiérarchie des nombres :
+             Number
+               |
+Complex -------|--------  Real
+                           |
+             float --------|-------rational
+               |                       |
+               |           ratio ------|------ integer
+               |                                  |
+               |                      fixnum -----|----- bignum
+               |
+    |-------------|-------------|-----------|
+ short-float  single-float  double-float  long-float
+
+A chaque niveau, les deux types sont disjoints (complex et real, float et rational, ...).
+Exception : les différents sous-types de float ont des relations d'inclusion bizarres (voir CLTL).
+De plus, fixnum et bignum forment une partition de integer (il n'y a pas d'autre sous-type à par nil).
+
+null est le type contenant uniquement le symbole nil. C'est un sous-type de symbol.
+null et cons forment une partition de list : (listp l) === (xor (consp l) (nullp l))
+
+etc... (voir cltl et implementation/types.lisp).
+
+Pour connaître le type de chaque objet, on utilise les n premiers bits,
+plus les relations d'inclusion (voir implementation/types.lisp).
+Par ex (tous les mots font 32 bits) :
+0...     cons (les 31 bits restants sont l'adresse du car, puis 32 bits pour l'adresse du cdr).
+         Si tout est à 0 (64 bits tous à zéro), c'est nil
+100...   fixnum (29 bits)
+10100... caractères unicode sur 8 bits   ;; TODO : y a-t-il des caractères unicode dans le standard ?
+10101... caractères unicode sur 16 bit
+110...   symbol
+111...   Tout le reste :
+11100000... array
+11100001... complex
+11100010... bignum
+11100011... rien.
+111001xx... floats (xx : 00 = short, 01 = single, 10 = double, 11 = long)
+11101000... hash-table
+11101001... readtable
+11101010... package
+11101011... pathname
+11101100... stream
+11101101... random-state
+11101110... function (attention: d'autes objets peuvent être des fonctions)
+
+
+Les symboles
+============
+CLTL 2
+Un symbole, (par ex 'foo), est un "objet" (commençant par 010 dans l'exemple ci-dessus).
+Lorsqu'on écrit 'foo, c'est remplacé par un pointeur sur cet objet.
+Les symboles ont une liste de propriétés (qu'on implémentera par une alist)
+Les symboles ont un nom (qu'on implémentera par une chaîne de caractères).
+Le symbole contiendra donc deux pointeurs vers son nom et sa liste de propriétés.
+Le symbole nil existe toujours (et a l'adresse 0)

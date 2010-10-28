@@ -1,7 +1,24 @@
 ;; variables "locales" : documentation
 (defvar documentation '(function variable struct)) ;; TODO
 
-;; "Primitives" : asm, eval
+;; TODO : décider de quelles "primitives" on a besoin.
+;; "Primitives" :
+;; - (%asm in-values out-values clobber-registers instructions)
+;; - (%eval expr env)
+;; - (%push-new-env "description")
+;; - (%add-top-level-fun-binding name value)
+;; - (%add-top-level-var-binding name value)
+;; - (%add-fun-binding name value)
+;; - (%add-var-binding name value)
+;; - (%ref-fun name)
+;; Les ref-xxx renvoient un bout de code ASM comme ci-dessous :
+;; - Pour une valeur dans la pile :
+;;   (%asm () (r0) (r0) "load X(sp) r0;") 
+;;   où X est la position dans la pile de name
+;; - Pour une valeur dans le top-level :
+;;   (%asm () (r0) (r0) "load X(bp) r0;")
+;; - Pour une valeur dans le tas (si on en a un)
+;;   (%asm () (r0) (r0) "load X r0;")
 
 (defmacro defun (name args &rest body)
   (let ((has-docstring
