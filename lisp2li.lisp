@@ -27,11 +27,10 @@ par le compilateur et par l’interpréteur"
         ((eq 'quote (car expr)) ;; quotes
          (cons :lit (second expr)))
         ((eq 'defun (car expr)) ;; TODO : a verifier que le cas de defun est bien gerer comme on le veux
-         (cons :call (cons 'add-binding (list (list :call 'push-new-env `(:lit . ,env) '(:lit . "DEFUN"))
-                                              (cons :lit (second expr))
-                                              (cons :lit (cons (length (third expr))
-                                                               (lisp2li (fourth expr)
-                                                                        (make-stat-env env (third expr)))))))))
+         (cons :call (list 'add-top-level-binding (cons :lclosure (list (length (third expr))
+                                                                        (lisp2li (fourth expr)
+                                                                                 (make-stat-env (push-new-env env "DEFUN")
+                                                                                                (third expr))))))))
         ((eq 'setq (car expr))
          (cons :call (cons 'set-binding (list `(:lit . ,env)
                                               (cons :lit (second expr))
