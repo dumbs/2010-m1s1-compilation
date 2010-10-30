@@ -1,6 +1,6 @@
 ;; TODO : reste a gerer les defuns, les let, les lambda expression, les setf, les progn, ...
 (defun lisp2li (expr env)
-  "Convertis le code LISP en un code intermédiaire reconnu
+  "Convertit le code LISP en un code intermédiaire reconnu
 par le compilateur et par l’interpréteur"
   (cond ((and (atom expr) (constantp expr)) ; literaux
          (cons :lit expr))
@@ -9,11 +9,12 @@ par le compilateur et par l’interpréteur"
            (if cell
                (cons :var (car cell))
              (warn "Variable ~S unknown" (car expr)))))
-        ((and (consp (car expr)) ; λ-expressions
-                                 ; => recursion sur arguments
-                                 ; => construction environnement
-                                 ; => recursion sur corps de la λ-fonction
+        ((and (consp (car expr))
               (eq 'lambda (caar expr)))
+         ;; λ-expressions
+         ;; => recursion sur arguments
+         ;; => construction environnement
+         ;; => recursion sur corps de la λ-fonction
          (error "Lambda expression NYI"))
         ((not (symbolp (car expr)))
          (warn "~S isn't a symbol" (car expr)))

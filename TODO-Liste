@@ -19,3 +19,5 @@ Questions :
 - Peut-on faire funcall sur des macros ? Si oui, on peut réécrire mapcar de manière beaucoup plus efficace dans
   inplementation-fonctions.lisp. Si non, vu qu'on a defmacro les fonctions car & cdr & d'autres, on ne peut pas les
   funcall :(
+  Réponse : non, on ne peut pas faire de funcall, mapcar etc. sur des macros (erreur "undefined function". Normal : ce
+  ne sont pas des fonctions :) ).
