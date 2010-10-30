@@ -52,8 +52,8 @@ Le paramètre ENV-STACK est toute la pile d'environnements."
 (defun add-binding (env-stack name value)
   "Ajoute une liaison au dernier environnement (le plus bas)."
   (setf (cdar env-stack)
-	(cons (cons name value)
-	      (cdar env-stack)))
+        (cons (cons name value)
+              (cdar env-stack)))
   env-stack)
 
 (defun get-binding (env-stack name)

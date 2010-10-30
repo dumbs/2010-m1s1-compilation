@@ -2,13 +2,14 @@
 (defun lisp2li (expr env)
   "Convertit le code LISP en un code intermédiaire reconnu
 par le compilateur et par l’interpréteur"
-  (cond ((and (atom expr) (constantp expr)) ; literaux
+  (cond ((null env) (lisp2li expr (empty-env-stack)))
+        ((and (atom expr) (constantp expr)) ; literaux
          (cons :lit expr))
         ((symbolp expr) ; symboles
          (let ((cell (get-binding env expr)))
            (if cell
                (cons :var (car cell))
-             (warn "Variable ~S unknown" (car expr)))))
+             (warn "Variable ~S unknown" expr))))
         ((and (consp (car expr))
               (eq 'lambda (caar expr)))
          ;; λ-expressions
@@ -18,7 +19,7 @@ par le compilateur et par l’interpréteur"
          (error "Lambda expression NYI"))
         ((not (symbolp (car expr)))
          (warn "~S isn't a symbol" (car expr)))
-        ((not (fboundp (car expr)))
+        ((get-binding env (car expr))
          (list :unknown expr env))
         ((eq 'if (car expr)) ; if
          (list :if
@@ -131,6 +132,6 @@ par le compilateur et par l’interpréteur"
 (deftestvar lisp2li env (add-binding (empty-env-stack) 'x 1))
 (deftest lisp2li
   (lisp2li '(setq x 2) env)
-  '(:call set-binding (:lit (("TOP-LEVEL" (x . 1)))) (:lit . x) (:lit . 2)))
+  '(:call set-binding (:lit . (("TOP-LEVEL" (x . 1)))) (:lit . x) (:lit . 2)))
 
 ;(run-tests t)
