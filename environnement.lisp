@@ -93,12 +93,21 @@ l'environnement top-level."
   env-stack)
 
 (defun print-env-stack (env-stack)
-  (if (atom env-stack)
-      nil
-    (progn (format t "~&~a: " (caar env-stack))
-           (mapcar (lambda (b) (format t "~&   ~w = ~w" (car b) (cdr b)))
-                   (cdar env-stack))
-           (print-env-stack (cdr env-stack)))))
+  (let ((*print-circle* t))
+    (if (atom env-stack)
+        nil
+      (progn (format t "~&~a: " (caar env-stack))
+             (mapcar (lambda (b) (format t "~&   ~w = ~w" (car b) (cdr b)))
+                     (cdar env-stack))
+             (print-env-stack (cdr env-stack))))))
+
+;(defun print-env-stack (env-stack)
+;  (if (atom env-stack)
+;      nil
+;    (progn (format t "~&~a: " (caar env-stack))
+;           (mapcar (lambda (b) (format t "~&   ~w = ~w" (car b) (cdr b)))
+;                   (cdar env-stack))
+;           (print-env-stack (cdr env-stack)))))
 
 ;;Test Unitaire
 (deftest environnement
