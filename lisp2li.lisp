@@ -1,24 +1,29 @@
-;; TODO : reste a gerer les defuns, les let, les lambda expression, les setf, les progn, ...
+(load "environnement")
 (defun lisp2li (expr env)
   "Convertit le code LISP en un code intermédiaire reconnu
 par le compilateur et par l’interpréteur"
-  (cond ((and (atom expr) (constantp expr)) ; literaux
+  (cond ((null env) (lisp2li expr (empty-env-stack)))
+        ((and (atom expr) (constantp expr)) ; literaux
          (cons :lit expr))
         ((symbolp expr) ; symboles
          (let ((cell (get-binding env expr)))
            (if cell
                (cons :var (car cell))
-             (warn "Variable ~S unknown" (car expr)))))
+             (warn "Variable ~S unknown" expr))))
+        ((eq 'lambda (car expr))
+         (let ((env-bis (make-stat-env (push-new-env env "LAMBDA") (second expr))))
+           `(:lclosure ,env-bis
+                       ,(lisp2li (third expr)
+                                 env-bis))))
         ((and (consp (car expr))
               (eq 'lambda (caar expr)))
-         ;; λ-expressions
-         ;; => recursion sur arguments
-         ;; => construction environnement
-         ;; => recursion sur corps de la λ-fonction
-         (error "Lambda expression NYI"))
+         `(:call ,(lisp2li (car expr) env)
+                 ,@(mapcar (lambda (param)
+                             (lisp2li param env))
+                           (cdr expr))))
         ((not (symbolp (car expr)))
          (warn "~S isn't a symbol" (car expr)))
-        ((not (fboundp (car expr)))
+        ((and (not (fboundp (car expr))) (not (get-binding env (car expr))))
          (list :unknown expr env))
         ((eq 'if (car expr)) ; if
          (list :if
@@ -28,12 +33,12 @@ par le compilateur et par l’interpréteur"
         ((eq 'quote (car expr)) ;; quotes
          (cons :lit (second expr)))
         ((eq 'defun (car expr)) ;; TODO : a verifier que le cas de defun est bien gerer comme on le veux
-         (add-top-level-binding env
-                                (second expr)
-                                (cons :lclosure (list (length (third expr))
-                                                      (lisp2li (fourth expr)
-                                                               (make-stat-env (push-new-env env "DEFUN")
-                                                                              (third expr))))))
+         (let ((env-bis (make-stat-env (push-new-env env "DEFUN") (third expr))))
+           (add-top-level-binding env
+                                  (second expr)
+                                  (cons :lclosure (cons env-bis
+                                                        (lisp2li (fourth expr)
+                                                                 env-bis)))))
          (cons :lit (second expr)))
         ((eq 'setq (car expr))
          (cons :call (cons 'set-binding (list `(:lit . ,env)
@@ -131,6 +136,8 @@ par le compilateur et par l’interpréteur"
 (deftestvar lisp2li env (add-binding (empty-env-stack) 'x 1))
 (deftest lisp2li
   (lisp2li '(setq x 2) env)
-  '(:call set-binding (:lit (("TOP-LEVEL" (x . 1)))) (:lit . x) (:lit . 2)))
+  '(:call set-binding (:lit . (("TOP-LEVEL" (x . 1)))) (:lit . x) (:lit . 2)))
+
+;; Test sur le defun
 
 ;(run-tests t)
