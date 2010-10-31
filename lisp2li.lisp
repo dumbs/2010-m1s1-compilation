@@ -10,13 +10,13 @@ par le compilateur et par l’interpréteur"
            (if cell
                (cons :var (car cell))
              (warn "Variable ~S unknown" expr))))
-        ((eq 'lambda (car expr))
+        ((eq 'lambda (car expr)) ; lambda solitaire ex: (lambda (x) x)
          (let ((env-bis (make-stat-env (push-new-env env "LAMBDA") (second expr))))
            `(:lclosure ,env-bis
                        ,(lisp2li (third expr)
                                  env-bis))))
         ((and (consp (car expr))
-              (eq 'lambda (caar expr)))
+              (eq 'lambda (caar expr))) ;lambda ex: ((lambda (x) x) 1)
          `(:call ,(lisp2li (car expr) env)
                  ,@(mapcar (lambda (param)
                              (lisp2li param env))
@@ -47,9 +47,6 @@ par le compilateur et par l’interpréteur"
         ((macro-function (car expr))
          (lisp2li (macroexpand-1 expr) env)) ; macros
         ((not (special-operator-p (car expr))) ; fonctions normales. (Attention) sur sbcl special-form-p ne marche pas il faut utiliser special-operator-p
-                                           ; => recursion sur tous les arguments
-                                           ; => eventuellement construction d'environnement
-                                           ; => et analyse du corps de la fonction appelee
          (cons :call (cons (first expr) (map-lisp2li (cdr expr) env))))
         (T
          (error "special forme NYI ~S" (car expr)))
@@ -126,11 +123,11 @@ par le compilateur et par l’interpréteur"
 
 (deftest lisp2li
   (lisp2li '(foo 1 1) ())
-  '(:unknown (foo 1 1) ()))
+  '(:unknown (foo 1 1) (("TOP-LEVEL"))))
 
 (deftest lisp2li
   (lisp2li '(if (and (eq 1 1) (= 2 2)) (foo 1 2) (bar 3 4)) ())
-  '(:IF (:CALL = (:LIT . 2) (:LIT . 2)) (:UNKNOWN (FOO 1 2) NIL) (:UNKNOWN (BAR 3 4) NIL)))
+  '(:IF (:CALL = (:LIT . 2) (:LIT . 2)) (:UNKNOWN (FOO 1 2) (("TOP-LEVEL"))) (:UNKNOWN (BAR 3 4) (("TOP-LEVEL")))))
 
 ;; Test sur le setq
 (deftestvar lisp2li env (add-binding (empty-env-stack) 'x 1))
@@ -139,5 +136,14 @@ par le compilateur et par l’interpréteur"
   '(:call set-binding (:lit . (("TOP-LEVEL" (x . 1)))) (:lit . x) (:lit . 2)))
 
 ;; Test sur le defun
+(deftest lisp2li
+  (lisp2li '(defun fact (n r) (if (= n 0) r (fact (- n 1) (* n r)))) env)
+  '(:lit . fact))
+
+;; Test sur la lambda expression
+(deftestvar lisp2li env-lambda (empty-env-stack))
+(deftest lisp2li
+  (lisp2li '(mapcar (lambda (x) x) '(1 2 3)) env-lambda)
+  '(:call mapcar (:lclosure (("LAMBDA" (X)) ("TOP-LEVEL")) (:var . x)) (:lit 1 2 3)))
 
 ;(run-tests t)
