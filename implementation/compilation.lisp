@@ -3,8 +3,29 @@
 (defvar asm-symbols '())
 (defvar asm-types '(fixnum symbol string))
 
+;;; Utilitaires
+
 (defun symbol-concat (&rest compounds)
   (intern (format nil "~{~a~}" compounds)))
+
+(defmacro aset (k v alist)
+  `(let ((my-k ,k)
+         (my-v ,v))
+     (let ((association (assoc my-k ,alist)))
+       (if association
+           (setf (cdr association) my-v)
+           (push (cons my-k my-v) ,alist)))))
+
+(defun split-bytes (n byte-size)
+  "Découpe N en plusieurs valeurs inférieures à 2^(byte-size),
+   les mots de poids faible en premier.
+   (split-bytes 0 byte-size) renvoie nil."
+  (if (= n 0)
+      '()
+      (cons (ldb (byte byte-size 0) n)
+            (split-bytes (ash n (- byte-size)) byte-size))))
+
+;;; ASM
 
 (defun get-label (category ending)
   (symbol-concat category "-" ending))
@@ -18,6 +39,9 @@
 (defvar asm '())
 (defmacro asm (section isn &rest params)
   `(push (list ',section ',isn ,@params) asm))
+
+(defmacro asm-db (value)
+  `(asm .data db ,value))
 
 (defun asm2asm1 (asm out)
   (loop
@@ -35,6 +59,8 @@
     (asm2asm1 asm out)
     (get-output-stream-string out)))
 
+;; My-compile
+
 (defmacro my-compile (expr)
   `(progn
      (setq asm '())
@@ -44,25 +70,13 @@
      asm))
 
 (defun my-compile1 (expr)
-  (cond
-    ;; Fixnum
-    ((and (numberp expr) (< expr asm-max-int))
-     (let ((name (new-label-ctr 'constant)))
-       (asm .data label name)
-       (asm .data db (position 'fixnum asm-types))
-       (asm .data db expr)
-       name))
-    ;; Bignum
-    ((and (numberp expr) (< expr asm-max-int))
-     (error "Not implemented yet : bignum"))
-    ;; String
-    ((stringp expr)
-     (let ((name (new-label-ctr 'constant)))
-       (asm .data label name)
-       (asm .data db (position 'string asm-types))
-       (asm .data db (length (string expr)))
-       (db-string (string expr))
-       name))
+  (some (lambda (condition rule)
+          (if (not (funcall (cdr condition) expr))
+              (funcall (cdr rule) expr)))
+        compile-rules-conditions
+        compile-rules-functions))
+
+(cond
     ;; Symbol
     ((symbolp expr)
      (progn 
@@ -76,21 +90,13 @@
        (get-label 'symbol expr)))))
 
 (defvar compile-rules-conditions '())
-(setq compile-rules-conditions '())
-
 (defvar compile-rules-functions '())
-(setq compile-rules-functions '())
 
 (defmacro defcompile-rule (name condition body)
-  `(progn (push (cons ',name (lambda (expr) ,condition)) compile-rules-conditions)
-          (push (cons ',name (lambda (expr) ,body)) compile-rules-functions)))
+  `(progn (aset ',name (lambda (expr) ,condition) compile-rules-conditions)
+          (aset ',name (lambda (expr) ,body) compile-rules-functions)))
 
 ;;; Règles de compilation
-
-(defun db-string (str)
-  (loop
-     for i from 0 below (length str)
-     do (asm .data db (char-code (char str i)))))
 
 (defcompile-rule fixnum (and (numberp expr) (< expr asm-max-fixnum))
   (let ((lab (mk-label 'constant)))
@@ -98,15 +104,6 @@
     (info-byte 'fixnum)
     (asm-db expr)
     lab))
-
-(defun split-bytes (n byte-size)
-  "Découpe N en plusieurs valeurs inférieures à 2^(byte-size),
-   les mots de poids faible en premier.
-   (split-bytes 0 byte-size) renvoie nil."
-  (if (= n 0)
-      '()
-      (cons (ldb (byte byte-size 0) n)
-            (split-bytes (ash n (- byte-size)) byte-size))))
 
 (defcompile-rule bignum (and (numberp expr) (>= expr asm-max-fixnum))
   (let ((lab (mk-label 'constant)))
@@ -118,7 +115,18 @@
          do (asm-db i)))
     lab))
 
-(asm2asm (my-compile foo))
+(defcompile-rule string (stringp expr)
+  (let ((name (new-label-ctr 'constant))
+        (str (string expr)))
+    (asm .data label name)
+    (asm-db (position 'string asm-types))
+    (asm-db (length (string expr)))
+    (loop
+       for i from 0 below (length str)
+       do (asm .data db (char-code (char str i))))
+    name))
+
+(asm2asm (my-compile "foo"))
 
 (asm2asm (my-compile 3))
 ;; section .data
