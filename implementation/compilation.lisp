@@ -1,63 +1,86 @@
-(defvar out '())
+(defvar asm-max-int (expt 2 32))
 
-(defmacro asm-section (section &rest asm)
-  `(progn (push `(begin section ,,section) out)
-          ,@asm
-          (push `(end   section ,,section) out)))
+(defun .data (&rest asm) `(section .data ,asm))
+(defun .text (&rest asm) `(section .text ,asm))
 
-(defmacro asm-label (label &rest asm)
-  `(progn (push `(begin label ,,label) out)
-          ,@asm
-          (push `(end   label ,,label) out)))
+(defvar global-variable-ctr 0)
+(defun global-variable (&rest asm)
+  (incf global-variable-ctr)
+  (let ((name (intern (concatenate 'string "GLOBAL-"
+                                   (format nil "~s" global-variable-ctr)))))
+    `((label ,name ,asm)
+      ,(asm-load name 'r0))))
 
-(defmacro .data (&rest asm) `(asm-section '.data ,@asm))
-(defmacro .text (&rest asm) `(asm-section '.text ,@asm))
+(defun asm-db (val)
+  (when (>= val asm-max-int)
+    (warn "db : value too big : ~a" val))
+  `(instruction db ,val))
 
-(defmacro global-variable (&rest asm)
-  `(asm-label 'global ,@asm))
+(defun asm-load (from to)
+  `(instruction load ,from ,to))
 
-(defmacro db (val)
-  `(push `(instruction db ,,val) out))
+(defun asm2asm-r (asm out)
+  (mapcar (lambda (x) (asm2asm x out))
+          asm))
 
-(setq out nil)
-(.data (global-variable (db 1)))
+(defun asm2asm (ctx &optional (out t))
+  (loop
+     for (instruction . params) in (cdr (assoc 'asm ctx))
+     do (cond ((eq instruction 'section)
+               (format out "~&section .data"))
+              (t
+               (format out "~&~a ~a" instruction params)))))
 
-(defun asm2asm (asm out)
-  (let ((stack '()))
-    (mapcar (lambda (x)
-              (when (eq (car x) 'begin)
-                (push (cdr x) stack))
-              (when (eq (car x) 'end)
-                (unless (equal (pop stack) (cdr x))
-                  (error "Mauvaise imbrication des instructions assembleur !")))
-              (cond ((eq (car x) 'end)
-                     nil)
-                    (and (eq (car x) 'begin) 
-            (reverse asm))))
-(asm2asm out t)
+(defun symbol-concat (s1 s2)
+  (intern (concatenate 'string
+                       (format nil "~:@(~a~)" s1)
+                       (format nil "~:@(~a~)" s2))))
+
+(defun append-to-section (ctx section asm)
+  (let ((asm (assoc 'asm ctx))
+        (old-section (assoc 'section ctx)))
+    (push `(section ,section) (cdr asm))
+    (setf (assoc 'section ctx) section)
+    (loop
+       for x in asm
+       do (push x (cdr asm)))
+    (push `(section ,oldsection) (cdr asm))
+    (setf (assoc 'section ctx) old-section)))
+
+(defun .data (ctx asm)
+  (append-to-section ctx '.data asm))
+
+(defvar asm-types '(fixnum))
+(defvar asm-constant-counter 0)
+(defun asm-constant (ctx type value)
+  (let ((name (symbol-concat "constant-" asm-constant-counter)))
+    (.data ctx
+           `((label ,name)
+             (db ,(position type asm-types))
+             (db ,value)))
+    name))
 
 (defmacro my-compile (expr)
-  `(my-compile1 ',expr))
+  `(let ((ctx (copy-tree '((asm)))))
+     (my-compile1 ',expr ctx)
+     ctx))
 
-(defun my-compile1 (expr)
+(defun my-compile1 (expr ctx)
   (cond
+    ;; Numbers
     ((numberp expr)
-     (.data
-      (global-variable
-       (db 1)
-       (db expr))))
-    ((consp expr)
-     (car expr))
+     (asm-constant ctx 'fixnum expr))
     (t
      'niy)))
 
-(my-compile 3)
+(asm2asm (my-compile 3))
 ;; section .data
 ;; :global-1
 ;;   db 1
 ;;   db 3
 
-(my-compile '(+ 2 3))
+(asm2asm (my-compile (+ 2 3))
+         )
 ;; =>
 ;; section .data
 ;; :global-1
