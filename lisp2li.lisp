@@ -46,7 +46,7 @@ par le compilateur et par l’interpréteur"
                                               (cons :lit (third expr))))))
         ((macro-function (car expr))
          (lisp2li (macroexpand-1 expr) env)) ; macros
-        ((not (special-operator-p (car expr))) ; fonctions normales. (Attention) sur sbcl special-form-p ne marche pas il faut utiliser special-operator-p
+        ((not (special-operator-p (car expr))) ; fonctions normales.
          (cons :call (cons (first expr) (map-lisp2li (cdr expr) env))))
         (T
          (error "special forme NYI ~S" (car expr)))
@@ -55,7 +55,7 @@ par le compilateur et par l’interpréteur"
 (defun map-lisp2li (expr env)
   (mapcar (lambda (x) (lisp2li x env)) expr))
 
-(defun make-stat-env (env params) ;; TODO : Verifier si on ne doit pas plutot chercher s'il existe pas deja un environnement avec la valeur et le mettre plutot que nil.
+(defun make-stat-env (env params)
   (mapcar (lambda (x) (add-binding env x nil)) params)
   env)
 
