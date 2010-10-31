@@ -1,4 +1,5 @@
 (load "environnement")
+
 (defun lisp2li (expr env)
   "Convertit le code LISP en un code intermédiaire reconnu
 par le compilateur et par l’interpréteur"
@@ -44,6 +45,9 @@ par le compilateur et par l’interpréteur"
          (cons :call (cons 'set-binding (list `(:lit . ,env)
                                               (cons :lit (second expr))
                                               (cons :lit (third expr))))))
+        ((eq 'let (car expr))
+         (push-new-env env "LET")
+         (map-lisp2li-let expr env))
         ((macro-function (car expr))
          (lisp2li (macroexpand-1 expr) env)) ; macros
         ((not (special-operator-p (car expr))) ; fonctions normales.
@@ -54,6 +58,9 @@ par le compilateur et par l’interpréteur"
 
 (defun map-lisp2li (expr env)
   (mapcar (lambda (x) (lisp2li x env)) expr))
+
+(defun map-lisp2li-let (expr env)
+  (mapcar (lambda (x) (add-binding env (car x) (lisp2li (cadr x) env))) (cadr expr)))
 
 (defun make-stat-env (env params)
   (mapcar (lambda (x) (add-binding env x nil)) params)
