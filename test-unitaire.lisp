@@ -67,8 +67,13 @@
        and return nil
      finally (return t)))
 
-(defun erase-tests ()
-  (setf all-tests nil))
+(defun erase-tests-1 (module)
+  (if module
+      (setf (assoc module all-tests) nil)
+      (setf all-tests nil)))
+
+(defmacro erase-tests (&optional module)
+  `(erase-tests-1 ',module))
 
 ;(deftest moda nil nil)
 ;(deftest moda (eq 42 42) t)
