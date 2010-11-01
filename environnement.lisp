@@ -20,6 +20,7 @@
 ;; Exemple de la structure env-stack après création de deux
 ;; environnements en plus du top-level et ajout de plusieurs laisons.
 (load "test-unitaire")
+(erase-tests environnement)
 (deftestvar environnement exemple-env-stack 
   '(;; Environnement le plus bas (dernières définitions par ordre
     ;; chronologique).

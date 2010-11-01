@@ -8,7 +8,10 @@
 ;(defun eval-in-env-2 (qexpr env)
 ;  '(eval `(let ,env ,qexpr)))
 
-(defmacro deftest (module test expected)
+(defun booleq (a b)
+  (if a b (not b)))
+
+(defmacro deftest (module test expected &optional (compare #'equal))
   `(progn
      (if (not (assoc ',module all-tests))
          (setf all-tests (cons (list ',module nil nil) all-tests)))
@@ -16,6 +19,7 @@
              (let* ((vars (second (assoc ',module all-tests)))
                     (_test ',test)
                     (_expected ',expected)
+                    (_compare ,compare)
                     ;; Les "eval" ci-dessous exécutent :
                     ;; (let ((var1 val1) (var2 val2) ...) ;; On définit les
                     ;;                                    ;; variables de deftestvar.
@@ -26,14 +30,15 @@
                     ;;                  ;; sont accessibles.
                     (res (eval `(let ,vars ,@(mapcar #'car vars) ,_test)))
                     (exp (eval `(let ,vars ,@(mapcar #'car vars) ,_expected))))
-               (if (equal res exp)
+               (if (funcall _compare res exp)
                    (progn
                      (format t "~&    [SUCCESS] ~w~&" ',test)
                      t)
                    (progn
-                     (format t "~&    [FAILURE] Test     : ~w~&" ',test)
-                     (format t "~&              got      : ~w~&" (list res (random 10)))
-                     (format t "~&              expected : ~w~&" exp)
+                     (format t "~&    [FAILURE] Test       : ~w~&" ',test)
+                     (format t "~&              got        : ~w~&" res)
+                     (format t "~&              expected   : ~w~&" exp)
+                     (format t "~&              comparison : ~w~&" _compare)
                      nil))))
            (third (assoc ',module all-tests)))))
 
@@ -68,7 +73,7 @@
 
 (defun erase-tests-1 (module)
   (if module
-      (setf (assoc module all-tests) nil)
+      (setf (cdr (assoc module all-tests)) (list nil nil))
       (setf all-tests nil)))
 
 (defmacro erase-tests (&optional module)
