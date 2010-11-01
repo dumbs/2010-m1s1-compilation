@@ -45,7 +45,7 @@ par le compilateur et par l’interpréteur"
          (cons :call (cons 'set-binding (list `(:lit . ,env)
                                               (cons :lit (second expr))
                                               (cons :lit (third expr))))))
-        ((eq 'let (car expr))
+        ((eq 'let (car expr)) ;; Idee de Georges :  (let ((x 1) (y 2) (z 3)) (list x y z)) === ((lambda (x y z) (list x y z)) 1 2 3)
          (push-new-env env "LET")
          (map-lisp2li-let expr env))
         ((macro-function (car expr))
