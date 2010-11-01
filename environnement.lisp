@@ -20,6 +20,7 @@
 ;; Exemple de la structure env-stack après création de deux
 ;; environnements en plus du top-level et ajout de plusieurs laisons.
 (load "test-unitaire")
+(erase-tests environnement)
 (deftestvar environnement exemple-env-stack 
   '(;; Environnement le plus bas (dernières définitions par ordre
     ;; chronologique).
@@ -143,10 +144,10 @@ l'environnement top-level."
                          ("TOP-LEVEL" (X . 24) (Z . 73))))
   '(("TOP-LEVEL" (X . 24) (Z . 73))))
 (deftest environnement
-  (add-top-level-binding (copy-tree '(("TEST" (X . 42)) ("TOP-LEVEL" (Y . 56))))
+  (add-top-level-binding (copy-seq '(("TEST" (X . 42)) ("TOP-LEVEL" (Y . 56))))
                          'Z 78)
   '(("TEST" (X . 42)) ("TOP-LEVEL" (Z . 78) (Y . 56))))
 (deftest environnement
-  (set-top-level-binding (copy-tree '(("LEVEL2" (X . 42)) ("TOP-LEVEL" (Y . 56))))
+  (set-top-level-binding (copy-seq '(("LEVEL2" (X . 42)) ("TOP-LEVEL" (Y . 56))))
                          'Y "42")
   '(("LEVEL2" (X . 42)) ("TOP-LEVEL" (Y . "42"))))

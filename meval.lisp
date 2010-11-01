@@ -19,6 +19,8 @@
   (mapcar (lambda (x) (meval x env)) list))
 
 ;; Test unitaire
+(load "test-unitaire")
+(erase-tests meval)
 (deftest meval
   (meval '(:lit . 3) ())
   3)

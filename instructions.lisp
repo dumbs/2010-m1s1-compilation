@@ -203,6 +203,7 @@ et termine par la liste APPEND."
 ;; TODO : Faire deftestvar
 ;; TODO : Finir le test unitaire
 (load "test-unitaire")
+(erase-tests virtual-machine)
 (deftestvar virtual-machine t-r0-value (+ 1 (random 42))) ;; r0 > 0 pour la division.
 (deftestvar virtual-machine t-r1-value (random 42))
 (deftestvar virtual-machine t-m-value (random 42))

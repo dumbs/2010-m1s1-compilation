@@ -68,7 +68,7 @@ par le compilateur et par l’interpréteur"
 
 ;; Test unitaire
 (load "test-unitaire")
-;(erase-tests)
+(erase-tests lisp2li)
 
 (deftest lisp2li
   (lisp2li '3 ())
