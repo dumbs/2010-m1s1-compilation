@@ -41,8 +41,7 @@
   `(progn
      (if (not (assoc ',module all-tests))
          (setf all-tests (cons (list ',module nil nil) all-tests)))
-	 ;; TODO : utiliser copy-seq ou copy-tree ???
-     (push (list ',name (list 'copy-tree ',value))
+     (push (list ',name (list 'copy-seq ',value))
            (second (assoc ',module all-tests)))))
 
 (defmacro run-tests (&rest modules)
