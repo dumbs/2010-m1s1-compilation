@@ -1,5 +1,5 @@
 (load "environnement")
-
+(erase-tests)
 (defun lisp2li (expr env)
   "Convertit le code LISP en un code intermédiaire reconnu
 par le compilateur et par l’interpréteur"
@@ -10,7 +10,7 @@ par le compilateur et par l’interpréteur"
          (let ((cell (get-binding env expr)))
            (if cell
                (cons :var (car cell))
-             (warn "Variable ~S unknown" expr))))
+             (error "Variable ~S unknown" expr))))
         ((eq 'lambda (car expr)) ; lambda solitaire ex: (lambda (x) x)
          (let ((env-bis (make-stat-env (push-new-env env "LAMBDA") (second expr))))
            `(:lclosure ,env-bis
@@ -45,7 +45,7 @@ par le compilateur et par l’interpréteur"
          (cons :call (cons 'set-binding (list `(:lit . ,env)
                                               (cons :lit (second expr))
                                               (cons :lit (third expr))))))
-        ((eq 'let (car expr)) ;; Idee de Georges :  (let ((x 1) (y 2) (z 3)) (list x y z)) === ((lambda (x y z) (list x y z)) 1 2 3)
+        ((eq 'let (car expr)) ; LET
                                         ; Premiere Version
                                         ;         (push-new-env env "LET")
                                         ;         (map-lisp2li-let expr env))
@@ -54,6 +54,14 @@ par le compilateur et par l’interpréteur"
            (lisp2li `((lambda ,(mapcar #'car bindings)
                ,@body)
                ,@(mapcar #'cadr bindings)) env)))
+        ((eq 'let* (car expr)) ; LET*
+         (let ((bindings (cadr expr))
+               (body (caddr expr)))
+           (lisp2li (if (endp bindings)
+                        body
+                      `(let (,(car bindings))
+                         (let* ,(cdr bindings)
+                           ,body))) env)))
         ((macro-function (car expr))
          (lisp2li (macroexpand-1 expr) env)) ; macros
         ((not (special-operator-p (car expr))) ; fonctions normales.
@@ -150,13 +158,39 @@ par le compilateur et par l’interpréteur"
 
 ;; Test sur le defun
 (deftest lisp2li
-  (lisp2li '(defun fact (n r) (if (= n 0) r (fact (- n 1) (* n r)))) env)
+  (lisp2li '(defun fact (n r) (if (= n 0) r (fact (- n 1) (* n r)))) ())
   '(:lit . fact))
 
 ;; Test sur la lambda expression
-(deftestvar lisp2li env-lambda (empty-env-stack))
 (deftest lisp2li
-  (lisp2li '(mapcar (lambda (x) x) '(1 2 3)) env-lambda)
-  '(:call mapcar (:lclosure (("LAMBDA" (X)) ("TOP-LEVEL")) (:var . x)) (:lit 1 2 3)))
+  (lisp2li '(mapcar (lambda (x) x) '(1 2 3)) ())
+  '(:call mapcar (:lclosure (("LAMBDA" (X)) ("TOP-LEVEL"))
+                            (:var . x)) (:lit 1 2 3)))
+
+(deftest lisp2li
+  (lisp2li '((lambda (x y z) (list x y z)) 1 2 3) ())
+  '(:call (:lclosure (("LAMBDA" (Z) (Y) (X)) ("TOP-LEVEL"))
+                     (:call list (:var . x) (:var . y) (:var . z)))
+          (:lit . 1) (:lit . 2) (:lit . 3)))
+
+;; Test sur le LET
+(deftest lisp2li
+  (lisp2li '(let ((x 1) (y 2)) (list x y)) ())
+  '(:call (:lclosure (("LAMBDA" (Y) (X)) ("TOP-LEVEL"))
+                     (:call list (:var . x) (:var . y)))
+          (:lit . 1) (:lit . 2)))
+
+(deftest lisp2li
+  (lisp2li '(let ((x 1) (y (+ x 2))) (list x y)) '(("TOP-LEVEL" (x . 1))))
+  '(:call (:lclosure (("LAMBDA" (Y) (X)) ("TOP-LEVEL" (x . 1)))
+                     (:call list (:var . x) (:var . y)))
+          (:lit . 1) (:call + (:var . x) (:lit . 2))))
+
+;; Test sur le LET*
+(deftest lisp2li
+  (lisp2li '(let* ((x 1) (y (+ x 2))) (list x y)) ())
+  '(:CALL (:LCLOSURE (("LAMBDA" (X)) ("TOP-LEVEL"))
+                     (:CALL (:LCLOSURE (("LAMBDA" (Y)) ("LAMBDA" (X)) ("TOP-LEVEL")) (:CALL LIST (:VAR . X) (:VAR . Y))) (:CALL + (:VAR . X) (:LIT . 2))))
+          (:LIT . 1)))
 
 ;(run-tests t)
