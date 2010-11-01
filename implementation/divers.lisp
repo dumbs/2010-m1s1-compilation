@@ -106,9 +106,11 @@
 	,(mapcar #'cdar bindings)))
 
 (defmacro let* (bindings &rest body)
-  `(let (,(car bindings))
-	 (let* ,(cdr bindings)
-	   ,body)))
+  (if (endp bindings)
+      body
+    `(let (,(car bindings))
+       (let* ,(cdr bindings)
+         ,body))))
 
 (defmacro labels (f-bindings &rest body)
   ;; TODO
