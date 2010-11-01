@@ -46,8 +46,14 @@ par le compilateur et par l’interpréteur"
                                               (cons :lit (second expr))
                                               (cons :lit (third expr))))))
         ((eq 'let (car expr)) ;; Idee de Georges :  (let ((x 1) (y 2) (z 3)) (list x y z)) === ((lambda (x y z) (list x y z)) 1 2 3)
-         (push-new-env env "LET")
-         (map-lisp2li-let expr env))
+                                        ; Premiere Version
+                                        ;         (push-new-env env "LET")
+                                        ;         (map-lisp2li-let expr env))
+         (let ((bindings (cadr expr))
+               (body (cddr expr)))
+           (lisp2li `((lambda ,(mapcar #'car bindings)
+               ,@body)
+               ,@(mapcar #'cadr bindings)) env)))
         ((macro-function (car expr))
          (lisp2li (macroexpand-1 expr) env)) ; macros
         ((not (special-operator-p (car expr))) ; fonctions normales.
