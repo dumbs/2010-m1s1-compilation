@@ -73,7 +73,9 @@
 
 (defun erase-tests-1 (module)
   (if module
-      (setf (cdr (assoc module all-tests)) (list nil nil))
+      (let ((association (assoc module all-tests)))
+        (when association
+          (setf (cdr association) (list nil nil))))
       (setf all-tests nil)))
 
 (defmacro erase-tests (&optional module)
