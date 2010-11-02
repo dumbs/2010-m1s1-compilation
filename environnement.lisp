@@ -42,7 +42,7 @@
 
 (defun empty-env-stack ()
   "Constructeur de la pile d'environnements."
-  (list (list "TOP-LEVEL")))
+  (list (list (copy-seq "TOP-LEVEL"))))
 
 (defun push-new-env (env-stack name)
   "Crée un nouvel environnement, l'ajoute à ENV-STACK et renvoie la
@@ -82,6 +82,11 @@ l'environnement top-level"
       env-stack
     (top-level-env-stack (cdr env-stack))))
 
+(defun get-top-level-binding (env-stack name)
+  "Récupère la liaison au top-level correspondant à NAME ."
+  (get-binding (top-level-env-stack env-stack) name))
+
+
 (defun add-top-level-binding (env-stack name value)
   "Ajoute une liaison \"globale\" à l'environnement top-level."
   (add-binding (top-level-env-stack env-stack) name value)
@@ -102,18 +107,10 @@ l'environnement top-level."
                      (cdar env-stack))
              (print-env-stack (cdr env-stack))))))
 
-;(defun print-env-stack (env-stack)
-;  (if (atom env-stack)
-;      nil
-;    (progn (format t "~&~a: " (caar env-stack))
-;           (mapcar (lambda (b) (format t "~&   ~w = ~w" (car b) (cdr b)))
-;                   (cdar env-stack))
-;           (print-env-stack (cdr env-stack)))))
-
 ;;Test Unitaire
 (deftest environnement
-  (push-new-env (empty-env-stack) "TEST")
-  '(("TEST") ("TOP-LEVEL")))
+  (push-new-env (env-var (empty-env-stack)) "TEST")
+  '(("TEST") "TOP-LEVEL"))
 (deftest environnement
   (push-new-env exemple-env-stack "TEST")
   (cons '("TEST") exemple-env-stack))
