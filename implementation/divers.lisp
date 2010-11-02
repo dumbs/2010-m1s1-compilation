@@ -102,13 +102,15 @@
 
 (defmacro let (bindings &rest body)
   `((lambda ,(mapcar #'car bindings)
-	  ,body)
-	,(mapcar #'cdar bindings)))
+	  ,@body)
+	,@(mapcar #'cadr bindings)))
 
-(defmacro let* (bindings &rest body)
-  `(let (,(car bindings))
-	 (let* ,(cdr bindings)
-	   ,body)))
+(defmacro my-let* (bindings &rest body)
+  (if (endp bindings)
+      `(progn ,@body)
+      `(let (,(car bindings))
+         (let* ,(cdr bindings)
+           ,@body))))
 
 (defmacro labels (f-bindings &rest body)
   ;; TODO

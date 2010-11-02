@@ -1,4 +1,5 @@
 (load "util")
+(load "lisp2lic")
 
 (defvar asm-fixnum-size 8)
 (defvar asm-max-fixnum (expt 2 asm-fixnum-size))
@@ -18,7 +19,7 @@
 (defmacro my-compile (expr)
   `(progn (setq result-data nil)
           (setq result-asm nil)
-          (my-compile1 ',expr)
+          (my-compile1 (lisp2cli ',expr))
           (format nil
                   "section .data~%~
                    ~{~%~a~}~%~
@@ -85,6 +86,8 @@
     (data "db @~a" left)
     (data "db @~a" right)
     (format nil "cons-~a" label-ctr)))
+
+;;; Exemples
 
 (my-compile '(1 2 3))
 
