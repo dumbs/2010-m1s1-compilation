@@ -38,8 +38,8 @@ par le compilateur et par l’interpréteur"
            (add-top-level-binding env
                                   (second expr)
                                   (cons :lclosure (cons env-bis
-                                                        (lisp2li (fourth expr)
-                                                                 env-bis)))))
+                                                        (map-lisp2li (cdddr expr)
+								     env-bis)))))
          (cons :lit (second expr)))
         ((eq 'setq (car expr))
          (cons :call (cons 'set-binding (list `(:lit . ,env)
@@ -62,12 +62,14 @@ par le compilateur et par l’interpréteur"
                       `(let (,(car bindings))
                          (let* ,(cdr bindings)
                            ,body))) env)))
+	((eq 'progn (car expr)) ; PROGN
+	 (cons :progn (map-lisp2li (cdr expr) env)))
         ((macro-function (car expr))
          (lisp2li (macroexpand-1 expr) env)) ; macros
         ((not (special-operator-p (car expr))) ; fonctions normales.
          (cons :call (cons (first expr) (map-lisp2li (cdr expr) env))))
         (T
-         (error "special forme NYI ~S" (car expr)))
+         (error "special form not yet implemented ~S" (car expr)))
         ))
 
 (defun map-lisp2li (expr env)
