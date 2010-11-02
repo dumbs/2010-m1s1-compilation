@@ -45,34 +45,34 @@
 
 ;;; Règles de compilation
 
-(defcompile-rule fixnum (and (numberp expr) (< expr asm-max-fixnum))
+(defcompile-rule fixnum (match (? numberp (< x asm-max-fixnum)) expr)
   (data "fixnum-constant-~a:" (incf label-ctr))
   (data "db ~a" (type-number 'fixnum))
   (data "db ~a" expr)
   (format nil "fixnum-constant-~a" label-ctr))
 
-(defcompile-rule bignum (and (numberp expr) (>= expr asm-max-fixnum))
+(defcompile-rule bignum (match (? numberp (>= expr asm-max-fixnum)) expr)
   (data "bignum-constant-~a:" (incf label-ctr))
   (data "db ~a" (type-number 'bignum))
   (let ((lst (split-bytes expr asm-fixnum-size)))
     (data "~{~&db ~a~}" (cons (length lst) lst)))
   (format nil "bignum-constant-~a" label-ctr))
 
-(defcompile-rule string (stringp expr)
+(defcompile-rule string (match (? stringp) expr)
   (data "string-constant-~a:" (incf label-ctr))
   (data "db ~a" (type-number 'string))
   (data "db ~a" (length expr))
   (data "~{~&db ~a~}" (map 'list #'char-code expr))
   (format nil "string-constant-~a" label-ctr))
 
-(defcompile-rule symbol (symbolp expr)
+(defcompile-rule symbol (match (? symbolp) expr)
   (let ((name (my-compile1 (string expr))))
     (data "symbol-~a:" (incf label-ctr))
     (data "db ~a" (type-number 'symbol))
     (data "db @~a" name)
     (format nil "symbol-~a" label-ctr)))
 
-(defcompile-rule cons (and (consp expr) (eq 'quote (car expr)) (consp (cdr expr)) (consp (cadr expr)))
+(defcompile-rule cons (match (quote (_ . _)) expr)
   (print "")
   (print expr)
   (print (list 'quote (caadr expr)))

@@ -14,5 +14,4 @@
   `(progn (aset ',name (lambda (expr) ,condition) lisp2cli-rules-conditions)
           (aset ',name (lambda (expr) ,@body) lisp2cli-rules-functions)))
 
-(deflisp2cli-rule he-quoteth (match (quote _) expr)
-  
+(deflisp2cli-rule quote (match (quote (_ . _)) expr)
