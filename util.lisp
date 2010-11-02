@@ -9,6 +9,7 @@
 ;; (remove-if-not predicate list) filtre la liste en fonction de predicate.
 ;; (incf x) incrémente x, (decf x) décrémente x.
 ;; (loop ......) lire la doc...
+;; (subst new old tree) remplace old par new dans tree.
 
 (defmacro aset (k v alist)
   `(let ((my-k ,k)
