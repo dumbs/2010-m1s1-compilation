@@ -14,3 +14,10 @@
       '()
       (cons (ldb (byte byte-size 0) n)
             (split-bytes (ash n (- byte-size)) byte-size))))
+
+(defun n-consp (n l)
+  "Détermine s'il y a au moins n cellules dans la liste l."
+  (if (<= n 0)
+      t
+      (and (consp l)
+           (n-consp (- n 1) (cdr l)))))
