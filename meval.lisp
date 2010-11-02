@@ -18,6 +18,8 @@
 (defun map-meval (list env)
   (mapcar (lambda (x) (meval x env)) list))
 
+(defun foo (x) x)
+
 ;; Test unitaire
 (load "test-unitaire")
 (erase-tests meval)
