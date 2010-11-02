@@ -105,7 +105,7 @@
 	  ,@body)
 	,@(mapcar #'cadr bindings)))
 
-(defmacro my-let* (bindings &rest body)
+(defmacro let* (bindings &rest body)
   (if (endp bindings)
       `(progn ,@body)
       `(let (,(car bindings))

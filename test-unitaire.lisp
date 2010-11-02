@@ -40,14 +40,16 @@
                      (format t "~&              expected   : ~w~&" exp)
                      (format t "~&              comparison : ~w~&" _compare)
                      nil))))
-           (third (assoc ',module all-tests)))))
+           (third (assoc ',module all-tests)))
+     t))
 
 (defmacro deftestvar (module name value)
   `(progn
      (if (not (assoc ',module all-tests))
          (setf all-tests (cons (list ',module nil nil) all-tests)))
      (push (list ',name (list 'copy-seq ',value))
-           (second (assoc ',module all-tests)))))
+           (second (assoc ',module all-tests)))
+     t))
 
 (defmacro run-tests (&rest modules)
   (if (or (not modules)
@@ -73,7 +75,9 @@
 
 (defun erase-tests-1 (module)
   (if module
-      (setf (cdr (assoc module all-tests)) (list nil nil))
+      (let ((association (assoc module all-tests)))
+        (when association
+          (setf (cdr association) (list nil nil))))
       (setf all-tests nil)))
 
 (defmacro erase-tests (&optional module)
