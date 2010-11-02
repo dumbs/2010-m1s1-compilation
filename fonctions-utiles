@@ -1,8 +1,0 @@
-(rplacd x val) = (setf (cdr x) val)
-(rplaca x val) = (setf (car x) val)
-(intersection l1 l2) = évident
-(acons clé valeur liste-associative) = (cons (cons clé valeur) liste-associative) ;; Ne gère pas les doublons !!!
-(push x liste) = (setf liste (cons x liste))
-(remove-if-not predicate list) filtre la liste en fonction de predicate.
-(incf x) incrémente x, (decf x) décrémente x.
-(loop ......) lire la doc...

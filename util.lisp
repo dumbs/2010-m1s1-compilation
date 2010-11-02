@@ -1,3 +1,15 @@
+;; Fonctions utiles
+
+;; Liste de quelques fonctions pratiques de LISP :
+;; (rplacd x val) = (setf (cdr x) val)
+;; (rplaca x val) = (setf (car x) val)
+;; (intersection l1 l2) = évident
+;; (acons clé valeur liste-associative) = (cons (cons clé valeur) liste-associative) ;; Ne gère pas les doublons et ne fait pas de setf.
+;; (push x liste) = (setf liste (cons x liste))
+;; (remove-if-not predicate list) filtre la liste en fonction de predicate.
+;; (incf x) incrémente x, (decf x) décrémente x.
+;; (loop ......) lire la doc...
+
 (defmacro aset (k v alist)
   `(let ((my-k ,k)
          (my-v ,v))
