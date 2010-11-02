@@ -17,6 +17,7 @@
 ;; ()                  (null expr)
 ;; $                   (and (atom expr) (not (null expr)))
 ;; @                   liste propre : (and (listp expr) (match @ (cdr expr)))
+;; @.                  cons : (consp expr)
 ;; _                   t
 ;; :symbole            Nom pour la capture (voir le paragraphe ci-dessous)
 ;; symbole             (eq 'symbole expr)
@@ -165,6 +166,9 @@
      (or (null expr)
          (and (consp expr)
               (pattern-match '@ (cdr expr)))))
+    ;; @.
+    ((eq '@. pattern)
+     (consp expr))
     ;; _
     ((eq '_ pattern)
      t)
@@ -364,6 +368,70 @@
 (deftest (match @ liste) (match (@)            '())            nil #'booleq)
 (deftest (match @ liste) (match (@)            'a)             nil #'booleq)
 
+;;; @.  Mêmes tests que @ , on indique les différences avec ";; diff avec @" à la fin de la ligne.
+
+(deftest (match @.) (match @.              'a)             nil #'booleq)
+(deftest (match @.) (match @.              '(a b))         t   #'booleq)
+(deftest (match @.) (match @.              '())            nil #'booleq) ;; diff avec @
+
+(deftest (match @. fin-de-liste) (match (a @.)          '(a b))         nil #'booleq)
+(deftest (match @. fin-de-liste) (match (a @.)          '(a (1 2 3)))   t   #'booleq)
+(deftest (match @. fin-de-liste) (match (a @.)          '(a (b c)))     t   #'booleq)
+(deftest (match @. fin-de-liste) (match (a @.)          '(a (b)))       t   #'booleq)
+(deftest (match @. fin-de-liste) (match (a @.)          '(a ()))        nil #'booleq) ;; diff avec @
+(deftest (match @. fin-de-liste) (match (a @.)          '(a (b . c)))   t   #'booleq) ;; diff avec @
+(deftest (match @. fin-de-liste) (match (a @.)          '(x b))         nil #'booleq)
+(deftest (match @. fin-de-liste) (match (a @.)          '(x (b)))       nil #'booleq)
+(deftest (match @. fin-de-liste) (match (a @.)          '(a))           nil #'booleq)
+(deftest (match @. fin-de-liste) (match (a @.)          '(a b c))       nil #'booleq)
+(deftest (match @. fin-de-liste) (match (a @.)          '())            nil #'booleq)
+(deftest (match @. fin-de-liste) (match (a @.)          'a)             nil #'booleq)
+
+(deftest (match @. milieu-de-liste) (match (a @. c)        '(a b c))       nil #'booleq)
+(deftest (match @. milieu-de-liste) (match (a @. c)        '(a (1 2 3) c)) t   #'booleq)
+(deftest (match @. milieu-de-liste) (match (a @. c)        '(a (b c) c))   t   #'booleq)
+(deftest (match @. milieu-de-liste) (match (a @. c)        '(a (b) c))     t   #'booleq)
+(deftest (match @. milieu-de-liste) (match (a @. c)        '(a () c))      nil #'booleq) ;; diff avec @
+(deftest (match @. milieu-de-liste) (match (a @. c)        '(a (b . c) c)) t   #'booleq) ;; diff avec @
+(deftest (match @. milieu-de-liste) (match (a @. c)        '(x (b) c))     nil #'booleq)
+(deftest (match @. milieu-de-liste) (match (a @. c)        '(x b c))       nil #'booleq)
+(deftest (match @. milieu-de-liste) (match (a @. c)        '(x (b) c))     nil #'booleq)
+(deftest (match @. milieu-de-liste) (match (a @. c)        '(a c))         nil #'booleq)
+(deftest (match @. milieu-de-liste) (match (a @. c)        '(a))           nil #'booleq)
+(deftest (match @. milieu-de-liste) (match (a @. c)        '(a b c d))     nil #'booleq)
+(deftest (match @. milieu-de-liste) (match (a @. c)        '())            nil #'booleq)
+(deftest (match @. milieu-de-liste) (match (a @. c)        'a)             nil #'booleq)
+(deftest (match @. milieu-de-liste) (match (a @. c)        '(a b b c))     nil #'booleq)
+(deftest (match @. milieu-de-liste) (match (a @. c)        '(a b x c))     nil #'booleq)
+
+(deftest (match @. fin-de-cons) (match (a . @.)        '(a b))         t   #'booleq)
+(deftest (match @. fin-de-cons) (match (a . @.)        '(a b c))       t   #'booleq)
+(deftest (match @. fin-de-cons) (match (a . @.)        '(a))           nil #'booleq) ;; diff avec @
+(deftest (match @. fin-de-cons) (match (a . @.)        '(a b . c))     t   #'booleq) ;; diff avec @
+(deftest (match @. fin-de-cons) (match (a . @.)        '(a . b))       nil #'booleq)
+(deftest (match @. fin-de-cons) (match (a . @.)        '(a . (b c)))   t   #'booleq) ;; equivalent à '(a b c)
+(deftest (match @. fin-de-cons) (match (a . @.)        '(a . ()))      nil #'booleq) ;; diff avec @  ;; equivalent à '(a)
+(deftest (match @. fin-de-cons) (match (a . @.)        '(x . b))       nil #'booleq)
+(deftest (match @. fin-de-cons) (match (a . @.)        '(x b c))       nil #'booleq)
+(deftest (match @. fin-de-cons) (match (a . @.)        '(x))           nil #'booleq)
+(deftest (match @. fin-de-cons) (match (a . @.)        '())            nil #'booleq)
+(deftest (match @. fin-de-cons) (match (a . @.)        'a)             nil #'booleq)
+
+(deftest (match @. cons) (match (a @. . @.)      '(a b . c))     nil #'booleq)
+(deftest (match @. cons) (match (a @. . @.)      '(a () . ()))   nil #'booleq) ;; diff avec @
+(deftest (match @. cons) (match (a @. . @.)      '(a (1) . (2))) t   #'booleq)
+(deftest (match @. cons) (match (a @. . @.)      '(a 1 . (2)))   nil #'booleq)
+(deftest (match @. cons) (match (a @. . @.)      '(a (1) . 2))   nil #'booleq)
+(deftest (match @. cons) (match (a @. . @.)      '(a))           nil #'booleq)
+(deftest (match @. cons) (match (a @. . @.)      'a)             nil #'booleq)
+
+(deftest (match @. liste) (match (@.)            '(a))           nil #'booleq)
+(deftest (match @. liste) (match (@.)            '(()))          nil #'booleq) ;; diff avec @
+(deftest (match @. liste) (match (@.)            '((a b)))       t   #'booleq)
+(deftest (match @. liste) (match (@.)            '(a b))         nil #'booleq)
+(deftest (match @. liste) (match (@.)            '())            nil #'booleq)
+(deftest (match @. liste) (match (@.)            'a)             nil #'booleq)
+
 ;;; $  Mêmes tests que _ , on indique les différences avec ";; diff" à la fin de la ligne.
 
 (deftest (match $) (match $              'a)             t   #'booleq)
@@ -439,6 +507,8 @@
 
 (deftest (match * _) (match (a (_ *) c)       '(a ((1 2) (3) () (4 5)) c))      t   #'booleq)
 (deftest (match * _) (match (a (_ *) c)       '(a ((1 2) 3 () (4 5)) c))        t   #'booleq)
+(deftest (match * _) (match (a (_ *) c)       '(a ((1 2) (3) (4 5)) c))         t   #'booleq)
+(deftest (match * _) (match (a (_ *) c)       '(a ((1 2) (3 . x) (4 5)) c))     t   #'booleq)
 (deftest (match * _) (match (a (_ *) c)       '(a ((1 2)) c))                   t   #'booleq)
 (deftest (match * _) (match (a (_ *) c)       '(a (1 2 3) c))                   t   #'booleq)
 (deftest (match * _) (match (a (_ *) c)       '(a (x) c))                       t   #'booleq)
@@ -447,14 +517,28 @@
 
 (deftest (match * @) (match (a (@ *) c)       '(a ((1 2) (3) () (4 5)) c))      t   #'booleq)
 (deftest (match * @) (match (a (@ *) c)       '(a ((1 2) 3 () (4 5)) c))        nil #'booleq)
+(deftest (match * @) (match (a (@ *) c)       '(a ((1 2) (3) (4 5)) c))         t   #'booleq)
+(deftest (match * @) (match (a (@ *) c)       '(a ((1 2) (3 . x) (4 5)) c))     nil #'booleq)
 (deftest (match * @) (match (a (@ *) c)       '(a ((1 2)) c))                   t   #'booleq)
 (deftest (match * @) (match (a (@ *) c)       '(a (1 2 3) c))                   nil #'booleq)
 (deftest (match * @) (match (a (@ *) c)       '(a (x) c))                       nil #'booleq)
 (deftest (match * @) (match (a (@ *) c)       '(a () c))                        t   #'booleq)
 (deftest (match * @) (match (a (@ *) c)       '(a x c))                         nil #'booleq)
 
+(deftest (match * @.) (match (a (@. *) c)       '(a ((1 2) (3) () (4 5)) c))      nil #'booleq)
+(deftest (match * @.) (match (a (@. *) c)       '(a ((1 2) 3 () (4 5)) c))        nil #'booleq)
+(deftest (match * @.) (match (a (@. *) c)       '(a ((1 2) (3) (4 5)) c))         t   #'booleq)
+(deftest (match * @.) (match (a (@. *) c)       '(a ((1 2) (3 . x) (4 5)) c))     t   #'booleq)
+(deftest (match * @.) (match (a (@. *) c)       '(a ((1 2)) c))                   t   #'booleq)
+(deftest (match * @.) (match (a (@. *) c)       '(a (1 2 3) c))                   nil #'booleq)
+(deftest (match * @.) (match (a (@. *) c)       '(a (x) c))                       nil #'booleq)
+(deftest (match * @.) (match (a (@. *) c)       '(a () c))                        t   #'booleq)
+(deftest (match * @.) (match (a (@. *) c)       '(a x c))                         nil #'booleq)
+
 (deftest (match * $) (match (a ($ *) c)       '(a ((1 2) (3) () (4 5)) c))      nil #'booleq)
 (deftest (match * $) (match (a ($ *) c)       '(a ((1 2) 3 () (4 5)) c))        nil #'booleq)
+(deftest (match * $) (match (a ($ *) c)       '(a ((1 2) (3) (4 5)) c))         nil #'booleq)
+(deftest (match * $) (match (a ($ *) c)       '(a ((1 2) (3 . x) (4 5)) c))     nil #'booleq)
 (deftest (match * $) (match (a ($ *) c)       '(a ((1 2)) c))                   nil #'booleq)
 (deftest (match * $) (match (a ($ *) c)       '(a (1 2 3) c))                   t   #'booleq)
 (deftest (match * $) (match (a ($ *) c)       '(a (x) c))                       t   #'booleq)
@@ -483,6 +567,8 @@
 
 (deftest (match + _) (match (a (_ +) c)       '(a ((1 2) (3) () (4 5)) c))      t   #'booleq)
 (deftest (match + _) (match (a (_ +) c)       '(a ((1 2) 3 () (4 5)) c))        t   #'booleq)
+(deftest (match + _) (match (a (_ +) c)       '(a ((1 2) (3) (4 5)) c))         t   #'booleq)
+(deftest (match + _) (match (a (_ +) c)       '(a ((1 2) (3 . x) (4 5)) c))     t   #'booleq)
 (deftest (match + _) (match (a (_ +) c)       '(a ((1 2)) c))                   t   #'booleq)
 (deftest (match + _) (match (a (_ +) c)       '(a (1 2 3) c))                   t   #'booleq)
 (deftest (match + _) (match (a (_ +) c)       '(a (x) c))                       t   #'booleq)
@@ -491,14 +577,28 @@
 
 (deftest (match + @) (match (a (@ +) c)       '(a ((1 2) (3) () (4 5)) c))      t   #'booleq)
 (deftest (match + @) (match (a (@ +) c)       '(a ((1 2) 3 () (4 5)) c))        nil #'booleq)
+(deftest (match + @) (match (a (@ +) c)       '(a ((1 2) (3) (4 5)) c))         t   #'booleq)
+(deftest (match + @) (match (a (@ +) c)       '(a ((1 2) (3 . x) (4 5)) c))     nil #'booleq)
 (deftest (match + @) (match (a (@ +) c)       '(a ((1 2)) c))                   t   #'booleq)
 (deftest (match + @) (match (a (@ +) c)       '(a (1 2 3) c))                   nil #'booleq)
 (deftest (match + @) (match (a (@ +) c)       '(a (x) c))                       nil #'booleq)
 (deftest (match + @) (match (a (@ +) c)       '(a () c))                        nil #'booleq) ;; diff
 (deftest (match + @) (match (a (@ +) c)       '(a x c))                         nil #'booleq)
 
+(deftest (match + @.) (match (a (@. +) c)       '(a ((1 2) (3) () (4 5)) c))      nil #'booleq)
+(deftest (match + @.) (match (a (@. +) c)       '(a ((1 2) 3 () (4 5)) c))        nil #'booleq)
+(deftest (match + @.) (match (a (@. +) c)       '(a ((1 2) (3) (4 5)) c))         t   #'booleq)
+(deftest (match + @.) (match (a (@. +) c)       '(a ((1 2) (3 . x) (4 5)) c))     t   #'booleq)
+(deftest (match + @.) (match (a (@. +) c)       '(a ((1 2)) c))                   t   #'booleq)
+(deftest (match + @.) (match (a (@. +) c)       '(a (1 2 3) c))                   nil #'booleq)
+(deftest (match + @.) (match (a (@. +) c)       '(a (x) c))                       nil #'booleq)
+(deftest (match + @.) (match (a (@. +) c)       '(a () c))                        nil #'booleq) ;; diff
+(deftest (match + @.) (match (a (@. +) c)       '(a x c))                         nil #'booleq)
+
 (deftest (match + $) (match (a ($ +) c)       '(a ((1 2) (3) () (4 5)) c))      nil #'booleq)
 (deftest (match + $) (match (a ($ +) c)       '(a ((1 2) 3 () (4 5)) c))        nil #'booleq)
+(deftest (match + $) (match (a ($ +) c)       '(a ((1 2) (3) (4 5)) c))         nil #'booleq)
+(deftest (match + $) (match (a ($ +) c)       '(a ((1 2) (3 . x) (4 5)) c))     nil #'booleq)
 (deftest (match + $) (match (a ($ +) c)       '(a ((1 2)) c))                   nil #'booleq)
 (deftest (match + $) (match (a ($ +) c)       '(a (1 2 3) c))                   t   #'booleq)
 (deftest (match + $) (match (a ($ +) c)       '(a (x) c))                       t   #'booleq)
@@ -527,6 +627,8 @@
 
 (deftest (match ? _) (match (a (_ ?) c)       '(a ((1 2) (3) () (4 5)) c))      nil #'booleq) ;; diff
 (deftest (match ? _) (match (a (_ ?) c)       '(a ((1 2) 3 () (4 5)) c))        nil #'booleq) ;; diff
+(deftest (match ? _) (match (a (_ ?) c)       '(a ((1 2) (3) (4 5)) c))         nil #'booleq) ;; diff
+(deftest (match ? _) (match (a (_ ?) c)       '(a ((1 2) (3 . x) (4 5)) c))     nil #'booleq) ;; diff
 (deftest (match ? _) (match (a (_ ?) c)       '(a ((1 2)) c))                   t   #'booleq)
 (deftest (match ? _) (match (a (_ ?) c)       '(a (1 2 3) c))                   nil #'booleq) ;; diff
 (deftest (match ? _) (match (a (_ ?) c)       '(a (x) c))                       t   #'booleq)
@@ -535,14 +637,28 @@
 
 (deftest (match ? @) (match (a (@ ?) c)       '(a ((1 2) (3) () (4 5)) c))      nil #'booleq) ;; diff
 (deftest (match ? @) (match (a (@ ?) c)       '(a ((1 2) 3 () (4 5)) c))        nil #'booleq)
+(deftest (match ? @) (match (a (@ ?) c)       '(a ((1 2) (3) (4 5)) c))         nil #'booleq) ;; diff
+(deftest (match ? @) (match (a (@ ?) c)       '(a ((1 2) (3 . x) (4 5)) c))     nil #'booleq)
 (deftest (match ? @) (match (a (@ ?) c)       '(a ((1 2)) c))                   t   #'booleq)
 (deftest (match ? @) (match (a (@ ?) c)       '(a (1 2 3) c))                   nil #'booleq)
 (deftest (match ? @) (match (a (@ ?) c)       '(a (x) c))                       nil #'booleq)
 (deftest (match ? @) (match (a (@ ?) c)       '(a () c))                        t   #'booleq)
 (deftest (match ? @) (match (a (@ ?) c)       '(a x c))                         nil #'booleq)
 
+(deftest (match ? @.) (match (a (@. ?) c)       '(a ((1 2) (3) () (4 5)) c))      nil #'booleq)
+(deftest (match ? @.) (match (a (@. ?) c)       '(a ((1 2) 3 () (4 5)) c))        nil #'booleq) 
+(deftest (match ? @.) (match (a (@. ?) c)       '(a ((1 2) (3) (4 5)) c))         nil #'booleq) ;; diff
+(deftest (match ? @.) (match (a (@. ?) c)       '(a ((1 2) (3 . x) (4 5)) c))     nil #'booleq) ;; diff
+(deftest (match ? @.) (match (a (@. ?) c)       '(a ((1 2)) c))                   t   #'booleq)
+(deftest (match ? @.) (match (a (@. ?) c)       '(a (1 2 3) c))                   nil #'booleq)
+(deftest (match ? @.) (match (a (@. ?) c)       '(a (x) c))                       nil #'booleq)
+(deftest (match ? @.) (match (a (@. ?) c)       '(a () c))                        t   #'booleq)
+(deftest (match ? @.) (match (a (@. ?) c)       '(a x c))                         nil #'booleq)
+
 (deftest (match ? $) (match (a ($ ?) c)       '(a ((1 2) (3) () (4 5)) c))      nil #'booleq)
 (deftest (match ? $) (match (a ($ ?) c)       '(a ((1 2) 3 () (4 5)) c))        nil #'booleq)
+(deftest (match ? $) (match (a ($ ?) c)       '(a ((1 2) (3) (4 5)) c))         nil #'booleq)
+(deftest (match ? $) (match (a ($ ?) c)       '(a ((1 2) (3 . x) (4 5)) c))     nil #'booleq)
 (deftest (match ? $) (match (a ($ ?) c)       '(a ((1 2)) c))                   nil #'booleq)
 (deftest (match ? $) (match (a ($ ?) c)       '(a (1 2 3) c))                   nil #'booleq) ;; diff
 (deftest (match ? $) (match (a ($ ?) c)       '(a (x) c))                       t   #'booleq)
