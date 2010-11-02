@@ -1,4 +1,4 @@
-(load "util")
+(load "../util")
 (load "lisp2lic")
 
 (defvar asm-fixnum-size 8)

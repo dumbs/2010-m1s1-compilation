@@ -1,4 +1,4 @@
-(load "implementation/util") ;; n-consp
+(load "util") ;; n-consp
 
 ;; Syntaxe : (match <motif> expression)
 ;;       ex: (match (:a ? :c) '(a b c)) => t
