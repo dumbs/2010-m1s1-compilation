@@ -1,5 +1,49 @@
 (load "environnement")
 (erase-tests lisp2li)
+
+;; `
+(defvar my-quasiquote (car '`(,foo)))
+
+;; ,
+(defvar my-unquote (caaadr '`(,foo)))
+
+;; ,@
+(defvar my-unquote-unsplice (caaadr '`(,@foo)))
+
+(defun map-lisp2li (expr env-var env-fun)
+  (mapcar (lambda (x) (lisp2li x env-var env-fun)) expr))
+
+(defun map-lisp2li-let (expr env)
+  (mapcar (lambda (x) (add-binding env (car x) (lisp2li (cadr x) env))) (cadr expr)))
+
+(defun make-stat-env (env params)
+  (mapcar (lambda (x) (add-binding env x nil)) params)
+  env)
+
+(defun transform-quasiquote (expr)
+  (cond
+   ;; a
+   ((atom expr)
+	 `',expr)
+   ;; (a)
+   ((atom (car expr))
+    `(cons ',(car expr)
+	   ,(transform-quasiquote (cdr expr))))
+   ;; (,a)
+   ((eq my-unquote (caar expr))
+    `(cons ,(cadar expr)
+	   ,(transform-quasiquote (cdr expr))))
+   ;; (,@a)
+   ((eq my-unquote-unsplice (caar expr))
+    (if (endp (cdr expr))
+	(cadar expr)
+      `(append ,(cadar expr)
+	       ,(transform-quasiquote (cdr expr)))))
+   ;; ((a ...) ...)
+   (T
+    `(cons ,(transform-quasiquote (car expr))
+	   ,(transform-quasiquote (cdr expr))))))
+
 (defun lisp2li (expr env-var env-fun)
   "Convertit le code LISP en un code intermédiaire reconnu
 par le compilateur et par l’interpréteur"
@@ -39,9 +83,15 @@ par le compilateur et par l’interpréteur"
                (lisp2li (second expr) env-var env-fun)
                (lisp2li (third expr) env-var env-fun)
                (lisp2li (fourth expr) env-var env-fun)))
-	;; quotes
+	;; quote
         ((eq 'quote (car expr)) 
          (cons :lit (second expr)))
+	;; quasiquote `
+	((eq my-quasiquote (car expr))
+	 (lisp2li (transform-quasiquote (cadr expr)) env-var env-fun))
+	;; #'fn (FUNCTION fn)
+	((eq 'function (car expr))
+	 (list :call 'function (car expr)))
         ;; defun
 	((eq 'defun (car expr)) 
          (let ((env-bis (make-stat-env (push-new-env env-var "DEFUN") (third expr))))
@@ -51,6 +101,11 @@ par le compilateur et par l’interpréteur"
                                                         (map-lisp2li (cdddr expr)
 								     env-bis env-fun)))))
          (cons :lit (second expr)))
+	;; defvar
+	((eq 'defvar (car expr))
+	 (add-top-level-binding env-var
+				(second expr)
+				(lisp2li (third expr) env-var env-fun)))
 	;; setq/setf
         ((eq 'setq (car expr))
          (cons :call (cons 'set-binding (list `(:lit . ,env-var)
@@ -82,65 +137,56 @@ par le compilateur et par l’interpréteur"
         ((not (special-operator-p (car expr)))
          (cons :call (cons (first expr) (map-lisp2li (cdr expr) env-var env-fun))))
         (T
+	 (print expr)
          (error "special form not yet implemented ~S" (car expr)))
         ))
-
-(defun map-lisp2li (expr env-var env-fun)
-  (mapcar (lambda (x) (lisp2li x env-var env-fun)) expr))
-
-(defun map-lisp2li-let (expr env)
-  (mapcar (lambda (x) (add-binding env (car x) (lisp2li (cadr x) env))) (cadr expr)))
-
-(defun make-stat-env (env params)
-  (mapcar (lambda (x) (add-binding env x nil)) params)
-  env)
 
 ;; Test unitaire
 (load "test-unitaire")
 (erase-tests lisp2li)
 
-(deftest lisp2li
+(deftest (lisp2li :lit)
   (lisp2li '3 () ())
   '(:lit . 3))
 
-(deftest lisp2li
+(deftest (lisp2li :lit)
   (lisp2li ''x () ())
   '(:lit . x))
 
-(deftest lisp2li
+(deftest (lisp2li :lit)
   (lisp2li ''(1 2 3) () ())
   '(:lit 1 2 3))
 
 ;; test des if
-(deftest lisp2li
+(deftest (lisp2li :if)
   (lisp2li '(if T T nil) () ())
   '(:if (:lit . T) (:lit . T) (:lit . nil)))
 
-(deftest lisp2li
+(deftest (lisp2li :if)
   (lisp2li '(if T nil T) () ())
   '(:if (:lit . T) (:lit . nil) (:lit . T)))
 
 ;; test des fonctions predefinies
-(deftest lisp2li
+(deftest (lisp2li :call)
   (lisp2li '(eq 1 1) () ())
   '(:call eq (:lit . 1) (:lit . 1)))
 
-(deftest lisp2li
+(deftest (lisp2li macros)
   (lisp2li '(and 1 1) () ())
   '(:lit . 1))
 
 ;; test des variables
-(deftest lisp2li
+(deftest (lisp2li :var)
   (lisp2li 'x '(("TOP-LEVEL" (x . 1) (y . 2))) ())
   '(:var . x))
 
-(deftest lisp2li
+(deftest (lisp2li :var)
   (lisp2li '(if (eq x 3) (- x 3) (+ x 3)) '(("TOP-LEVEL" (x . 3))) ())
   '(:if (:call eq (:var . x) (:lit . 3))
         (:call - (:var . x) (:lit . 3))
         (:call + (:var . x) (:lit . 3))))
 
-(deftest lisp2li
+(deftest (lisp2li :var)
   (lisp2li '(if (eq x 3)
                 (- z 3)
               (- x 5))
@@ -149,19 +195,19 @@ par le compilateur et par l’interpréteur"
         (:CALL - (:VAR . X) (:LIT . 5))))
 
 ;; Test avec des expression plus complexe
-(deftest lisp2li
+(deftest (lisp2li complexe)
   (lisp2li '(if (eq 1 1) 2 2) () ())
   '(:if (:call eq (:lit . 1) (:lit . 1)) (:lit . 2) (:lit . 2)))
 
-(deftest lisp2li
+(deftest (lisp2li complexe)
   (lisp2li '(if (eq "abc" 1) "abc" 2) () ())
   '(:IF (:CALL EQ (:LIT . "abc") (:LIT . 1)) (:LIT . "abc") (:LIT . 2)))
 
-(deftest lisp2li
+(deftest (lisp2li :unknown)
   (lisp2li '(foo 1 1) () ())
   '(:unknown (foo 1 1) ((("TOP-LEVEL")) ("TOP-LEVEL"))))
 
-(deftest lisp2li
+(deftest (lisp2li :unknown)
   (lisp2li '(if (and (eq 1 1) (= 2 2)) (foo 1 2) (bar 3 4)) () ())
   '(:IF (:CALL = (:LIT . 2)
 	       (:LIT . 2))
@@ -169,19 +215,33 @@ par le compilateur et par l’interpréteur"
 	(:UNKNOWN (BAR 3 4) ((("TOP-LEVEL")) ("TOP-LEVEL")))))
 
 ;; Test sur le setq
-(deftestvar lisp2li env (add-binding (empty-env-stack) 'x 1))
-(deftest lisp2li
+(deftestvar (lisp2li setq) env (add-binding (empty-env-stack) 'x 1))
+(deftest (lisp2li setq)
   (lisp2li '(setq x 2) env ())
   '(:call set-binding (:lit . (("TOP-LEVEL" (x . 1)))) (:lit . x) (:lit . 2)))
 
 ;; Test sur le defun
-(deftest lisp2li
+(deftest (lisp2li defun valeur-de-retour)
   (lisp2li '(defun fact (n r) 
 	      (if (= n 0) 
 		  r
 		(fact (- n 1) (* n r))))
 	   () ())
   '(:lit . fact))
+
+(deftestvar (lisp2li defun environnement) env (empty-env-stack))
+(deftest (lisp2li defun environnement)
+  (progn 
+    (lisp2li '(defun fact (n r)
+		(if (= n 0)
+		    r
+		  (fact (- n 1) (* n r))))
+	     () env)
+    env)
+  '#1=(("TOP-LEVEL"
+     (FACT :LCLOSURE (#2=(("DEFUN" (R) (N)) ("TOP-LEVEL")) . #1#)
+      (:IF (:CALL = (:VAR . N) (:LIT . 0)) (:VAR . R)
+       (:UNKNOWN (FACT (- N 1) (* N R)) (#2# . #1#)))))))
 
 ;; Test sur la lambda expression
 (deftest lisp2li
