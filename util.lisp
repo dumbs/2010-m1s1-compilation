@@ -59,10 +59,28 @@
 
 (defun readfile (name)
   (let ((fd (open name)))
-  `(progn 
-    ,(loop
-     for line = (read fd nil 'eof)
-     when (not (eq line 'eof))
-     do (cons line nil)
-     else return (close fd)
-     ))))
+    (cons 'progn
+          (loop
+           for line = (read fd nil 'eof)
+           while (not (eq line 'eof))
+           collect line
+           finally (close fd)
+           ))))
+
+(defun m-macroexpand-1 (macro)
+  ())
+
+(defmacro get-defun (symb)
+  `(get ,symb :defun))
+
+(defun set-defun (li)
+  (setf (get-defun (cdaddr li))
+        (cdddr li)))
+
+(defmacro get-defmacro (symb)
+  `(get ,symb :defmacro))
+
+(defun set-defmacro (li)
+  (setf (get-defmacro (cdaddr li))
+        (cdddr li)))
+

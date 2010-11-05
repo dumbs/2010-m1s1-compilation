@@ -11,23 +11,6 @@
 (defun map-lisp2li (expr env)
   (mapcar (lambda (x) (lisp2li x env)) expr))
 
-(defun m-macroexpand-1 (macro)
-  ())
-
-(defmacro get-defun (symb)
-  `(get ,symb :defun))
-
-(defun set-defun (li)
-  (setf (get-defun (cdaddr li))
-        (cdddr li)))
-
-(defmacro get-defmacro (symb)
-  `(get ,symb :defmacro))
-
-(defun set-defmacro (li)
-  (setf (get-defmacro (cdaddr li))
-        (cdddr li)))
-
 (defun make-stat-env (params &optional env)
    (append
     (loop
