@@ -59,7 +59,19 @@
    (T
     `(cons ,(transform-quasiquote (car expr))
 	   ,(transform-quasiquote (cdr expr))))))
-   
+
+(defun get-nb-params (params)
+  "renvoie le nombre exact de paramètres sans les &optional et &rest"
+  (defun get-nb-params-t (params r)
+    (cond ((endp params)
+           r)
+          ((or (eq '&optional (car params))
+               (eq '&rest (car params)))
+           (get-nb-params-t (cdr params) r))
+          (T
+           (get-nb-params-t (cdr params) (+ 1 r)))))
+  (get-nb-params-t params 0))
+
 (defun lisp2li (expr env)
   "Convertit le code LISP en un code intermédiaire reconnu
 par le compilateur et par l’interpréteur"
@@ -74,10 +86,15 @@ par le compilateur et par l’interpréteur"
           `(:cvar ,(cadr cell) ,(caddr cell))
         (error "Variable ~S unknown" expr))))
    ;; lambda solitaire ex: (lambda (x) x)
-   ((eq 'lambda (car expr))
-    `(:lclosure . ,(cons (length (second expr))
-                         (lisp2li (caddr expr)
-                                  (make-stat-env (second expr))))))
+   ((eq 'lambda (car expr)) ;; TODO : ameliorer le cas du lambda
+    (if (member '&rest (second expr))
+      `(:lclosure . (,(get-nb-params (second expr))
+                           ,(+ 1 (position '&rest (second expr)))
+                           ,(lisp2li (caddr expr)
+                                    (make-stat-env (second expr)))))
+      `(:lclosure . ,(cons (get-nb-params (second expr))
+                           (lisp2li (caddr expr)
+                                    (make-stat-env (second expr)))))))
    ;; lambda ex: ((lambda (x) x) 1)
    ((and (consp (car expr))
          (eq 'lambda (caar expr)))
