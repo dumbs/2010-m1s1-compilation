@@ -11,16 +11,31 @@
 (defun map-lisp2li (expr env)
   (mapcar (lambda (x) (lisp2li x env)) expr))
 
-(defun make-stat-env (params &optional env)
-   (append
-    (loop
-     for var in (remove '&optional (remove '&rest params))
-     for num-env = (+ (or (second (first env)) -1) 1)
-     for position = 1 then (+ position 1)
-     unless (member var '(&optional &rest))
-     collect (list var num-env position))
-    env))
-     
+(defun make-stat-env-optional (params env position num-env)
+  (cond ((endp params)
+         env)
+        ((consp (car params))
+         `((,(caar params) ,num-env ,position)
+           (,(intern (format nil "~a-P" (caar params))) ,num-env ,(+ 1 position))
+           . ,(make-stat-env-optional (cdr params) env (+ 2 position) num-env)))
+        ((eq '&rest (car params))
+         (make-stat-env (cdr params) env position num-env))
+        (T
+         `((,(car params) ,num-env ,position)
+           . ,(make-stat-env-optional (cdr params) env (+ 1 position) num-env)))))
+  
+(defun make-stat-env (params &optional env (position 1) num-env)
+  (unless num-env (setq num-env (+ (or (second (first env)) -1) 1)))
+  (cond ((endp params)
+         env)
+        ((eq '&optional (car params))
+         (make-stat-env-optional (cdr params) env position num-env))
+        ((eq '&rest (car params))
+         (make-stat-env (cdr params) env position num-env))
+        (T
+         `((,(car params) ,num-env ,position)
+           . ,(make-stat-env (cdr params) env (+ 1 position))))))
+
 (defun transform-quasiquote (expr)
   (cond
    ;; a
@@ -61,7 +76,7 @@ par le compilateur et par l’interpréteur"
    ;; lambda solitaire ex: (lambda (x) x)
    ((eq 'lambda (car expr))
     `(:lclosure . ,(cons (length (second expr))
-                         (lisp2li (third expr)
+                         (lisp2li (caddr expr)
                                   (make-stat-env (second expr))))))
    ;; lambda ex: ((lambda (x) x) 1)
    ((and (consp (car expr))
@@ -206,6 +221,13 @@ par le compilateur et par l’interpréteur"
                      (:cvar 0 2)
                      (:cvar 0 3))
           (:const . 1) (:const . 2) (:const . 3)))
+
+(deftest (lisp2li lambda)
+  (lisp2li `(lambda (x y z) (list x y z)) ())
+  '(:lclosure 3 :call list
+                      (:cvar 0 1)
+                      (:cvar 0 2)
+                      (:cvar 0 3)))
 
 (deftest (lisp2li unknown)
   (lisp2li '(foo 3) ())
