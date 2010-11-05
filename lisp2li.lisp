@@ -11,16 +11,33 @@
 (defun map-lisp2li (expr env)
   (mapcar (lambda (x) (lisp2li x env)) expr))
 
+(defun m-macroexpand-1 (macro)
+  ())
+
+(defmacro get-defun (symb)
+  `(get ,symb :defun))
+
+(defun set-defun (li)
+  (setf (get-defun (cdaddr li))
+        (cdddr li)))
+
+(defmacro get-defmacro (symb)
+  `(get ,symb :defmacro))
+
+(defun set-defmacro (li)
+  (setf (get-defmacro (cdaddr li))
+        (cdddr li)))
+
 (defun make-stat-env (params &optional env)
    (append
     (loop
-    for var in params
-    for j = 1 then (+ j 1)
-    for num-env = (+ (or (second (first env)) -1) 1)
-    collect (list var num-env j)
-    )
+     for var in (remove '&optional (remove '&rest params))
+     for num-env = (+ (or (second (first env)) -1) 1)
+     for position = 1 then (+ position 1)
+     unless (member var '(&optional &rest))
+     collect (list var num-env position))
     env))
-
+     
 (defun transform-quasiquote (expr)
   (cond
    ;; a
@@ -45,12 +62,6 @@
     `(cons ,(transform-quasiquote (car expr))
 	   ,(transform-quasiquote (cdr expr))))))
    
-(defmacro get-defun (symb)
-  `(get ,symb :defun))
-
-(defun set-defun (li)
-  (setf (get-defun (cdaddr li)) (cdddr li)))
-
 (defun lisp2li (expr env)
   "Convertit le code LISP en un code intermédiaire reconnu
 par le compilateur et par l’interpréteur"
@@ -97,14 +108,14 @@ par le compilateur et par l’interpréteur"
     (lisp2li (transform-quasiquote (cadr expr)) env))
    ;; #'fn (FUNCTION fn)
    ((eq 'function (car expr))
-    `(:sclosure (cadr expr)))
+    `(:sclosure ,(cadr expr)))
    ;; defun
    ((eq 'defun (car expr))
     `(:mcall set-defun (:const . ,(second expr))
                 ,(lisp2li `(lambda ,(third expr) ,@(cdddr expr)) env)))
    ;; apply
    ((eq 'apply (car expr))
-    `(:sapply ,(second expr) (cddr expr)))
+    `(:sapply ,(second expr) ,@(cddr expr)))
    ;; setf
    ((eq 'setf (car expr))
     (if (symbolp (cadr expr))
@@ -116,7 +127,7 @@ par le compilateur et par l’interpréteur"
     (cons :progn (map-lisp2li (cdr expr) env)))
    ;; macros
    ((macro-function (car expr))
-    (lisp2li (macroexpand-1 expr) env))
+    (lisp2li (macroexpand expr) env))
    ;; foctions normales
    ((not (special-operator-p (car expr)))
     `(:call ,(first expr) ,@(map-lisp2li (cdr expr) env)))
@@ -140,6 +151,14 @@ par le compilateur et par l’interpréteur"
   (make-stat-env '(a b) '((x 0 1) (y 0 2)))
   '((a 1 1) (b 1 2) (x 0 1) (y 0 2)))
 
+(deftest (lisp2li make-stat-env)
+  (make-stat-env '(a b &optional c &rest d))
+  '((a 0 1) (b 0 2) (c 0 3) (d 0 4)))
+
+(deftest (lisp2li make-stat-env)
+  (make-stat-env '(x y &optional (z t)))
+  '((x 0 1) (y 0 2) (z 0 3) (z-p 0 4)))
+
 (deftest (lisp2li constante)
   (lisp2li '3 ())
   '(:const . 3))
@@ -151,6 +170,23 @@ par le compilateur et par l’interpréteur"
 (deftest (lisp2li constante)
   (lisp2li ''(1 2 3) ())
   '(:const 1 2 3))
+
+(deftest (lisp2li variables)
+  (lisp2li 'x '((x 0 1) (y 0 2)))
+  '(:cvar 0 1))
+
+(deftest (lisp2li fonctions-normales)
+  (lisp2li '(+ 3 4) ())
+  '(:call + (:const . 3) (:const . 4)))
+
+(deftest (lisp2li fonctions-normales)
+  (lisp2li '(list 3 4 (* 6 7)) ())
+  '(:call list (:const . 3) (:const . 4)
+          (:call * (:const . 6) (:const . 7))))
+
+(deftest (lisp2li if)
+  (lisp2li '(if T T nil) ())
+  '(:if (:const . T) (:const . T) (:const . nil)))
 
 (deftest (lisp2li defun)
   (lisp2li '(defun foo (x) x) ())
@@ -179,3 +215,57 @@ par le compilateur et par l’interpréteur"
                             (:cvar 0 2)
                             (:cvar 0 3))
           (:const 1 2 3)))
+
+(deftest (lisp2li lambda)
+  (lisp2li '((lambda (x y z) (list x y z)) 1 2 3) ())
+  '(:mcall (:lclosure 3 :call list
+                     (:cvar 0 1)
+                     (:cvar 0 2)
+                     (:cvar 0 3))
+          (:const . 1) (:const . 2) (:const . 3)))
+
+(deftest (lisp2li unknown)
+  (lisp2li '(foo 3) ())
+  '(:unknown (foo 3) ()))
+
+(deftest (lisp2li function)
+  (lisp2li '#'car ())
+  '(:sclosure car))
+
+(deftest (lisp2li apply)
+  (lisp2li '(apply 'list '(1 2 3)) ())
+  '(:sapply 'list '(1 2 3)))
+
+(deftest (lisp2li apply)
+  (lisp2li '(apply #'list '(1 2 3)) ())
+  '(:sapply #'list '(1 2 3)))
+
+(deftest (lisp2li progn)
+  (lisp2li '(progn (list 1 2 3) (+ 3 4)) ())
+  '(:progn (:call list
+                  (:const . 1)
+                  (:const . 2)
+                  (:const . 3))
+           (:call +
+                  (:const . 3)
+                  (:const . 4))))
+
+(deftest (lisp2li macro)
+  (lisp2li '(cond ((eq (car '(1 2 3)) 1) T)
+                  ((eq (car '(1 2 3)) 2) 2)
+                  (T nil))
+           ())
+  '(:if (:call eq (:call car (:const 1 2 3)) (:const . 1))
+        (:const . T)
+        (:if (:call eq (:call car (:const 1 2 3)) (:const . 2))
+             (:const . 2)
+             (:const . nil))))
+
+(deftest (lisp2li macro)
+  (lisp2li '(and (eq (car '(1 2)) 1)
+                 T)
+           ())
+  '(:if (:call not
+               (:call eq (:call car (:const 1 2)) (:const . 1)))
+        (:const . nil)
+        (:const . T)))

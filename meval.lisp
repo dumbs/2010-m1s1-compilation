@@ -17,6 +17,7 @@
 
 (defun map-meval (list env)
   (mapcar (lambda (x) (meval x env)) list))
+
 (defun foo (x) x)
 
 ;; Test unitaire

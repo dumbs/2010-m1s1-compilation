@@ -57,8 +57,12 @@
             (shift ,(count-if (lambda (x) (eq x :skip)) params)
                    actual-params))))
 
-(defun foo (x y z) (list x y z))
-(defvar cfoo nil)
-(setq cfoo (curry #'foo 1 2))
-(defvar cfoo2 nil)
-(setq cfoo2 (curry #'foo :skip 2))
+(defun readfile (name)
+  (let ((fd (open name)))
+  `(progn 
+    ,(loop
+     for line = (read fd nil 'eof)
+     when (not (eq line 'eof))
+     do (cons line nil)
+     else return (close fd)
+     ))))
