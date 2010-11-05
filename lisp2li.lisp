@@ -40,7 +40,7 @@ par le compilateur et par l’interpréteur"
                (lisp2li (third expr) env-var env-fun)
                (lisp2li (fourth expr) env-var env-fun)))
 	;; quotes
-        ((eq 'quote (car expr)) 
+        ((eq 'quote (car expr))
          (cons :lit (second expr)))
         ;; defun
 	((eq 'defun (car expr)) 
@@ -62,8 +62,8 @@ par le compilateur et par l’interpréteur"
                (body (cddr expr)))
            (lisp2li `((lambda ,(mapcar #'car bindings)
                ,@body)
-               ,@(mapcar #'cadr bindings)) env-var env-fun)))
-	;; let*
+                      ,@(mapcar #'cadr bindings)) env-var env-fun)))
+        ;; let*
         ((eq 'let* (car expr))
          (let ((bindings (cadr expr))
                (body (caddr expr)))
@@ -72,6 +72,16 @@ par le compilateur et par l’interpréteur"
                       `(let (,(car bindings))
                          (let* ,(cdr bindings)
                            ,body))) env-var env-fun)))
+        ;; labels
+        ((eq 'labels (car expr))
+         (let ((bindings (cadr expr))
+               (body (cddr expr)))
+           (lisp2li `((lambda ,(mapcar #'car bindings)
+                        ,@body)
+                      ,@(mapcar #'cadr bindings)) env-var env-fun)))
+        ;; `
+        ((eq '` (car expr))
+         (print "Ca marche"))
 	;; progn
 	((eq 'progn (car expr))
 	 (cons :progn (map-lisp2li (cdr expr) env-var env-fun)))
@@ -86,7 +96,7 @@ par le compilateur et par l’interpréteur"
         ))
 
 (defun map-lisp2li (expr env-var env-fun)
-  (mapcar (lambda (x) (lisp2li x env-var env-fun)) expr))
+  (mapcar (curry #'lisp2li :skip env-var env-fun) expr))
 
 (defun map-lisp2li-let (expr env)
   (mapcar (lambda (x) (add-binding env (car x) (lisp2li (cadr x) env))) (cadr expr)))
