@@ -40,7 +40,7 @@
       (setf all-tests (list nil nil nil nil))
       (let ((from (test-get-module (butlast module))))
         (setf (first from)
-              (delete (last module)
+              (delete (car (last module))
                       (first from)
                       :key #'car)))))
 
