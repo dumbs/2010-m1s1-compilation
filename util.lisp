@@ -1,5 +1,5 @@
-;; Fonctions utiles
 
+;; Fonctions utiles
 ;; Liste de quelques fonctions pratiques de LISP :
 ;; (rplacd x val) = (setf (cdr x) val)
 ;; (rplaca x val) = (setf (car x) val)
