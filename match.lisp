@@ -382,15 +382,16 @@
                 (,result-sym (pattern-match ,pattern-sym ,expr)))
            ;; Filtrage des captures nommées nil.
            (when ,result-sym
-             (let ,(mapcar (lambda (x)
-                             `(,x (cdr (assoc ',x ,result-sym))))
-                           capture-names)
-               ;; "utilisation" des variables pour éviter les warning unused variable.
-               ,@(if body
-                     (append capture-names body)
-                     (if capture-names
-                         `((list ,@capture-names))
-                         `(t)))))))))
+             ,@(if body
+                   `((let ,(mapcar (lambda (x)
+                                     `(,x (cdr (assoc ',x ,result-sym))))
+                                   capture-names)
+                       ;; "utilisation" des variables pour éviter les warning unused variable.
+                       ,@capture-names
+                       ,@body))
+                   (if capture-names
+                       `((remove nil ,result-sym :key #'car))
+                       `(t))))))))
 
 (load "test-unitaire")
 (erase-tests match)
@@ -1107,7 +1108,3 @@
   '((foo . (lambda (labels-x labels-y) (list x y)))
     (bar . (lambda (labels-z labels-w) (print z) (print w)))
     (quux . (lambda ()))))
-
-
-
-;(run-tests match)

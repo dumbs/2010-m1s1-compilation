@@ -35,6 +35,11 @@
       (and (consp l)
            (n-consp (- n 1) (cdr l)))))
 
+(defun propper-list-p (l)
+  (or (null l)
+         (and (consp l)
+                  (propper-list-p (cdr l)))))
+
 (defun range (a &optional b)
   (cond ((null b) (range 0 a))
         ((> a b) (loop for i from a above (- b 1) collect i))
