@@ -1,221 +1,271 @@
-(load "environnement")
-(erase-tests lisp2li)
-(defun lisp2li (expr env-var env-fun)
+(load "util.lisp")
+;; `
+(defvar my-quasiquote (car '`(,a)))
+
+;; ,
+(defvar my-unquote (caaadr '`(,a)))
+
+;; ,@
+(defvar my-unquote-unsplice (caaadr '`(,@a)))
+
+(defun map-lisp2li (expr env)
+  (mapcar (lambda (x) (lisp2li x env)) expr))
+
+(defun m-macroexpand-1 (macro)
+  ())
+
+(defmacro get-defun (symb)
+  `(get ,symb :defun))
+
+(defun set-defun (li)
+  (setf (get-defun (cdaddr li))
+        (cdddr li)))
+
+(defmacro get-defmacro (symb)
+  `(get ,symb :defmacro))
+
+(defun set-defmacro (li)
+  (setf (get-defmacro (cdaddr li))
+        (cdddr li)))
+
+(defun make-stat-env (params &optional env)
+   (append
+    (loop
+     for var in (remove '&optional (remove '&rest params))
+     for num-env = (+ (or (second (first env)) -1) 1)
+     for position = 1 then (+ position 1)
+     unless (member var '(&optional &rest))
+     collect (list var num-env position))
+    env))
+     
+(defun transform-quasiquote (expr)
+  (cond
+   ;; a
+   ((atom expr)
+	 `',expr)
+   ;; (a)
+   ((atom (car expr))
+    `(cons ',(car expr)
+	   ,(transform-quasiquote (cdr expr))))
+   ;; (,a)
+   ((eq my-unquote (caar expr))
+    `(cons ,(cadar expr)
+	   ,(transform-quasiquote (cdr expr))))
+   ;; (,@a)
+   ((eq my-unquote-unsplice (caar expr))
+    (if (endp (cdr expr))
+	(cadar expr)
+      `(append ,(cadar expr)
+	       ,(transform-quasiquote (cdr expr)))))
+   ;; ((a ...) ...)
+   (T
+    `(cons ,(transform-quasiquote (car expr))
+	   ,(transform-quasiquote (cdr expr))))))
+   
+(defun lisp2li (expr env)
   "Convertit le code LISP en un code intermédiaire reconnu
 par le compilateur et par l’interpréteur"
-  (cond ((null env-var) (lisp2li expr (empty-env-stack) env-fun))
-	((null env-fun) (lisp2li expr env-var (empty-env-stack)))
-	;; literaux
-        ((and (atom expr) (constantp expr)) 
-         (cons :lit expr))
-	;; symboles
-        ((symbolp expr)
-         (let ((cell (get-binding env-var expr)))
-           (if cell
-               (cons :var (car cell))
-             (error "Variable ~S unknown" expr))))
-	;; lambda solitaire ex: (lambda (x) x)
-        ((eq 'lambda (car expr))
-         (let ((env-bis (make-stat-env (push-new-env env-var "LAMBDA") (second expr))))
-           `(:lclosure (,env-bis . ,env-fun)
-                       ,(lisp2li (third expr)
-                                 env-bis env-fun))))
-	;; lambda ex: ((lambda (x) x) 1)
-        ((and (consp (car expr))
-              (eq 'lambda (caar expr)))
-         `(:call ,(lisp2li (car expr) env-var env-fun)
-                 ,@(mapcar (lambda (param)
-                             (lisp2li param env-var env-fun))
-                           (cdr expr))))
-	;; (not-symbol ...)
-        ((not (symbolp (car expr)))
-         (warn "~S isn't a symbol" (car expr)))
-	;; fonction inconnue
-        ((and (not (fboundp (car expr))) (not (get-binding env-fun (car expr))))
-         `(:unknown ,expr (,env-var . ,env-fun)))
-	;; if
-        ((eq 'if (car expr))
-         (list :if
-               (lisp2li (second expr) env-var env-fun)
-               (lisp2li (third expr) env-var env-fun)
-               (lisp2li (fourth expr) env-var env-fun)))
-	;; quotes
-        ((eq 'quote (car expr)) 
-         (cons :lit (second expr)))
-        ;; defun
-	((eq 'defun (car expr)) 
-         (let ((env-bis (make-stat-env (push-new-env env-var "DEFUN") (third expr))))
-           (add-top-level-binding env-fun
-                                  (second expr)
-                                  (cons :lclosure (cons (cons env-bis env-fun)
-                                                        (map-lisp2li (cdddr expr)
-								     env-bis env-fun)))))
-         (cons :lit (second expr)))
-	;; setq/setf
-        ((eq 'setq (car expr))
-         (cons :call (cons 'set-binding (list `(:lit . ,env-var)
-                                              (cons :lit (second expr))
-                                              (cons :lit (third expr))))))
-	;; let
-        ((eq 'let (car expr)) 
-         (let ((bindings (cadr expr))
-               (body (cddr expr)))
-           (lisp2li `((lambda ,(mapcar #'car bindings)
-               ,@body)
-               ,@(mapcar #'cadr bindings)) env-var env-fun)))
-	;; let*
-        ((eq 'let* (car expr))
-         (let ((bindings (cadr expr))
-               (body (caddr expr)))
-           (lisp2li (if (endp bindings)
-                        body
-                      `(let (,(car bindings))
-                         (let* ,(cdr bindings)
-                           ,body))) env-var env-fun)))
-	;; progn
-	((eq 'progn (car expr))
-	 (cons :progn (map-lisp2li (cdr expr) env-var env-fun)))
-	;; macros
-        ((macro-function (car expr))
-         (lisp2li (macroexpand-1 expr) env-var env-fun))
-	;; fonctions normales
-        ((not (special-operator-p (car expr)))
-         (cons :call (cons (first expr) (map-lisp2li (cdr expr) env-var env-fun))))
-        (T
-         (error "special form not yet implemented ~S" (car expr)))
-        ))
-
-(defun map-lisp2li (expr env-var env-fun)
-  (mapcar (lambda (x) (lisp2li x env-var env-fun)) expr))
-
-(defun map-lisp2li-let (expr env)
-  (mapcar (lambda (x) (add-binding env (car x) (lisp2li (cadr x) env))) (cadr expr)))
-
-(defun make-stat-env (env params)
-  (mapcar (lambda (x) (add-binding env x nil)) params)
-  env)
+  (cond
+   ;; literaux
+   ((and (atom expr) (constantp expr)) 
+    (cons :const expr))
+   ;; symboles
+   ((symbolp expr)
+    (let ((cell (assoc expr env)))
+      (if cell
+          `(:cvar ,(cadr cell) ,(caddr cell))
+        (error "Variable ~S unknown" expr))))
+   ;; lambda solitaire ex: (lambda (x) x)
+   ((eq 'lambda (car expr))
+    `(:lclosure . ,(cons (length (second expr))
+                         (lisp2li (third expr)
+                                  (make-stat-env (second expr))))))
+   ;; lambda ex: ((lambda (x) x) 1)
+   ((and (consp (car expr))
+         (eq 'lambda (caar expr)))
+    `(:mcall ,(lisp2li (car expr) env)
+            ,@(mapcar (lambda (param)
+                        (lisp2li param env))
+                      (cdr expr))))
+   ;; (not-symbol ...)
+   ((not (symbolp (car expr)))
+    (warn "~S isn't a symbol" (car expr)))
+   ;; fonction inconnue
+   ((and (not (fboundp (car expr)))
+         (not (get-defun (car expr))))
+    `(:unknown ,expr ,env))
+   ;; if
+   ((eq 'if (car expr))
+    (list :if
+          (lisp2li (second expr) env)
+          (lisp2li (third expr) env)
+          (lisp2li (fourth expr) env)))
+   ;; quote
+   ((eq 'quote (car expr)) 
+    (cons :const (second expr)))
+   ;; quasiquote `
+   ((eq my-quasiquote (car expr))
+    (lisp2li (transform-quasiquote (cadr expr)) env))
+   ;; #'fn (FUNCTION fn)
+   ((eq 'function (car expr))
+    `(:sclosure ,(cadr expr)))
+   ;; defun
+   ((eq 'defun (car expr))
+    `(:mcall set-defun (:const . ,(second expr))
+                ,(lisp2li `(lambda ,(third expr) ,@(cdddr expr)) env)))
+   ;; apply
+   ((eq 'apply (car expr))
+    `(:sapply ,(second expr) ,@(cddr expr)))
+   ;; setf
+   ((eq 'setf (car expr))
+    (if (symbolp (cadr expr))
+        (let ((cell (assoc (cadr expr) env)))
+          `(:set-var (,(second cell) ,(third cell)) ,(third expr)))
+      `(:set-fun ,(caadr expr) ,@(last expr) ,@(cdadr expr))))
+   ;; progn
+   ((eq 'progn (car expr))
+    (cons :progn (map-lisp2li (cdr expr) env)))
+   ;; macros
+   ((macro-function (car expr))
+    (lisp2li (macroexpand expr) env))
+   ;; foctions normales
+   ((not (special-operator-p (car expr)))
+    `(:call ,(first expr) ,@(map-lisp2li (cdr expr) env)))
+   (T
+    (print expr)
+    (error "special form not yet implemented ~S" (car expr)))))
 
 ;; Test unitaire
 (load "test-unitaire")
 (erase-tests lisp2li)
 
-(deftest lisp2li
-  (lisp2li '3 () ())
-  '(:lit . 3))
+(deftest (lisp2li make-stat-env)
+  (make-stat-env '(x y z))
+  '((x 0 1) (y 0 2) (z 0 3)))
 
-(deftest lisp2li
-  (lisp2li ''x () ())
-  '(:lit . x))
+(deftest (lisp2li make-stat-env)
+  (make-stat-env '(a b c d))
+  '((a 0 1) (b 0 2) (c 0 3) (d 0 4)))
 
-(deftest lisp2li
-  (lisp2li ''(1 2 3) () ())
-  '(:lit 1 2 3))
+(deftest (lisp2li make-stat-env)
+  (make-stat-env '(a b) '((x 0 1) (y 0 2)))
+  '((a 1 1) (b 1 2) (x 0 1) (y 0 2)))
 
-;; test des if
-(deftest lisp2li
-  (lisp2li '(if T T nil) () ())
-  '(:if (:lit . T) (:lit . T) (:lit . nil)))
+(deftest (lisp2li make-stat-env)
+  (make-stat-env '(a b &optional c &rest d))
+  '((a 0 1) (b 0 2) (c 0 3) (d 0 4)))
 
-(deftest lisp2li
-  (lisp2li '(if T nil T) () ())
-  '(:if (:lit . T) (:lit . nil) (:lit . T)))
+(deftest (lisp2li make-stat-env)
+  (make-stat-env '(x y &optional (z t)))
+  '((x 0 1) (y 0 2) (z 0 3) (z-p 0 4)))
 
-;; test des fonctions predefinies
-(deftest lisp2li
-  (lisp2li '(eq 1 1) () ())
-  '(:call eq (:lit . 1) (:lit . 1)))
+(deftest (lisp2li constante)
+  (lisp2li '3 ())
+  '(:const . 3))
 
-(deftest lisp2li
-  (lisp2li '(and 1 1) () ())
-  '(:lit . 1))
+(deftest (lisp2li constante)
+  (lisp2li ''x ())
+  '(:const . x))
 
-;; test des variables
-(deftest lisp2li
-  (lisp2li 'x '(("TOP-LEVEL" (x . 1) (y . 2))) ())
-  '(:var . x))
+(deftest (lisp2li constante)
+  (lisp2li ''(1 2 3) ())
+  '(:const 1 2 3))
 
-(deftest lisp2li
-  (lisp2li '(if (eq x 3) (- x 3) (+ x 3)) '(("TOP-LEVEL" (x . 3))) ())
-  '(:if (:call eq (:var . x) (:lit . 3))
-        (:call - (:var . x) (:lit . 3))
-        (:call + (:var . x) (:lit . 3))))
+(deftest (lisp2li variables)
+  (lisp2li 'x '((x 0 1) (y 0 2)))
+  '(:cvar 0 1))
 
-(deftest lisp2li
-  (lisp2li '(if (eq x 3)
-                (- z 3)
-              (- x 5))
-           '(("TEST" (z . 5)) ("TOP-LEVEL" (x . 4))) ())
-  '(:IF (:CALL EQ (:VAR . X) (:LIT . 3)) (:CALL - (:VAR . Z) (:LIT . 3))
-        (:CALL - (:VAR . X) (:LIT . 5))))
+(deftest (lisp2li fonctions-normales)
+  (lisp2li '(+ 3 4) ())
+  '(:call + (:const . 3) (:const . 4)))
 
-;; Test avec des expression plus complexe
-(deftest lisp2li
-  (lisp2li '(if (eq 1 1) 2 2) () ())
-  '(:if (:call eq (:lit . 1) (:lit . 1)) (:lit . 2) (:lit . 2)))
+(deftest (lisp2li fonctions-normales)
+  (lisp2li '(list 3 4 (* 6 7)) ())
+  '(:call list (:const . 3) (:const . 4)
+          (:call * (:const . 6) (:const . 7))))
 
-(deftest lisp2li
-  (lisp2li '(if (eq "abc" 1) "abc" 2) () ())
-  '(:IF (:CALL EQ (:LIT . "abc") (:LIT . 1)) (:LIT . "abc") (:LIT . 2)))
+(deftest (lisp2li if)
+  (lisp2li '(if T T nil) ())
+  '(:if (:const . T) (:const . T) (:const . nil)))
 
-(deftest lisp2li
-  (lisp2li '(foo 1 1) () ())
-  '(:unknown (foo 1 1) ((("TOP-LEVEL")) ("TOP-LEVEL"))))
+(deftest (lisp2li defun)
+  (lisp2li '(defun foo (x) x) ())
+  '(:mcall set-defun (:const . foo) (:lclosure 1 :cvar 0 1)))
 
-(deftest lisp2li
-  (lisp2li '(if (and (eq 1 1) (= 2 2)) (foo 1 2) (bar 3 4)) () ())
-  '(:IF (:CALL = (:LIT . 2)
-	       (:LIT . 2))
-	(:UNKNOWN (FOO 1 2) ((("TOP-LEVEL")) ("TOP-LEVEL")))
-	(:UNKNOWN (BAR 3 4) ((("TOP-LEVEL")) ("TOP-LEVEL")))))
+(deftest (lisp2li defun)
+  (lisp2li '(defun foo (x y z) (list x y z)) ())
+  '(:mcall set-defun (:const . foo)
+           (:lclosure 3 :call list
+                      (:cvar 0 1)
+                      (:cvar 0 2)
+                      (:cvar 0 3))))
 
-;; Test sur le setq
-(deftestvar lisp2li env (add-binding (empty-env-stack) 'x 1))
-(deftest lisp2li
-  (lisp2li '(setq x 2) env ())
-  '(:call set-binding (:lit . (("TOP-LEVEL" (x . 1)))) (:lit . x) (:lit . 2)))
+(deftest (lisp2li setf)
+  (lisp2li '(setf y 42) '((x 0 1) (y 0 2)))
+  '(:set-var (0 2) 42))
 
-;; Test sur le defun
-(deftest lisp2li
-  (lisp2li '(defun fact (n r) 
-	      (if (= n 0) 
-		  r
-		(fact (- n 1) (* n r))))
-	   () ())
-  '(:lit . fact))
+(deftest (lisp2li setf)
+  (lisp2li '(setf (cdr '(1 2 3)) 42) ())
+  '(:set-fun cdr 42 '(1 2 3)))
 
-;; Test sur la lambda expression
-(deftest lisp2li
-  (lisp2li '(mapcar (lambda (x) x) '(1 2 3))
-	   () ())
-  '(:call mapcar (:lclosure ((("LAMBDA" (X)) ("TOP-LEVEL")) ("TOP-LEVEL"))
-                            (:var . x)) (:lit 1 2 3)))
+(deftest (lisp2li lambda)
+  (lisp2li '(mapcar (lambda (x y z) (list x y z)) '(1 2 3)) ())
+  '(:call mapcar (:lclosure 3 :call list
+                            (:cvar 0 1)
+                            (:cvar 0 2)
+                            (:cvar 0 3))
+          (:const 1 2 3)))
 
-(deftest lisp2li
-  (lisp2li '((lambda (x y z) (list x y z)) 1 2 3) () ())
-  '(:call (:lclosure ((("LAMBDA" (Z) (Y) (X)) ("TOP-LEVEL")) ("TOP-LEVEL"))
-                     (:call list (:var . x) (:var . y) (:var . z)))
-          (:lit . 1) (:lit . 2) (:lit . 3)))
+(deftest (lisp2li lambda)
+  (lisp2li '((lambda (x y z) (list x y z)) 1 2 3) ())
+  '(:mcall (:lclosure 3 :call list
+                     (:cvar 0 1)
+                     (:cvar 0 2)
+                     (:cvar 0 3))
+          (:const . 1) (:const . 2) (:const . 3)))
 
-;; Test sur le LET
-(deftest lisp2li
-  (lisp2li '(let ((x 1) (y 2)) (list x y)) () ())
-  '(:call (:lclosure ((("LAMBDA" (Y) (X)) ("TOP-LEVEL")) ("TOP-LEVEL"))
-                     (:call list (:var . x) (:var . y)))
-          (:lit . 1) (:lit . 2)))
+(deftest (lisp2li unknown)
+  (lisp2li '(foo 3) ())
+  '(:unknown (foo 3) ()))
 
-(deftest lisp2li
-  (lisp2li '(let ((x 1) (y (+ x 2))) (list x y)) '(("TOP-LEVEL" (x . 1))) ())
-  '(:call (:lclosure ((("LAMBDA" (Y) (X)) ("TOP-LEVEL" (x . 1))) ("TOP-LEVEL"))
-                     (:call list (:var . x) (:var . y)))
-          (:lit . 1) (:call + (:var . x) (:lit . 2))))
+(deftest (lisp2li function)
+  (lisp2li '#'car ())
+  '(:sclosure car))
 
-;; Test sur le LET*
-(deftest lisp2li
-  (lisp2li '(let* ((x 1) (y (+ x 2))) (list x y)) () ())
-  '(:CALL (:LCLOSURE ((("LAMBDA" (X)) ("TOP-LEVEL")) ("TOP-LEVEL"))
-                     (:CALL (:LCLOSURE ((("LAMBDA" (Y)) ("LAMBDA" (X)) ("TOP-LEVEL")) ("TOP-LEVEL"))
-				       (:CALL LIST (:VAR . X) (:VAR . Y)))
-			    (:CALL + (:VAR . X) (:LIT . 2))))
-          (:LIT . 1)))
+(deftest (lisp2li apply)
+  (lisp2li '(apply 'list '(1 2 3)) ())
+  '(:sapply 'list '(1 2 3)))
 
-;(run-tests t)
+(deftest (lisp2li apply)
+  (lisp2li '(apply #'list '(1 2 3)) ())
+  '(:sapply #'list '(1 2 3)))
+
+(deftest (lisp2li progn)
+  (lisp2li '(progn (list 1 2 3) (+ 3 4)) ())
+  '(:progn (:call list
+                  (:const . 1)
+                  (:const . 2)
+                  (:const . 3))
+           (:call +
+                  (:const . 3)
+                  (:const . 4))))
+
+(deftest (lisp2li macro)
+  (lisp2li '(cond ((eq (car '(1 2 3)) 1) T)
+                  ((eq (car '(1 2 3)) 2) 2)
+                  (T nil))
+           ())
+  '(:if (:call eq (:call car (:const 1 2 3)) (:const . 1))
+        (:const . T)
+        (:if (:call eq (:call car (:const 1 2 3)) (:const . 2))
+             (:const . 2)
+             (:const . nil))))
+
+(deftest (lisp2li macro)
+  (lisp2li '(and (eq (car '(1 2)) 1)
+                 T)
+           ())
+  '(:if (:call not
+               (:call eq (:call car (:const 1 2)) (:const . 1)))
+        (:const . nil)
+        (:const . T)))

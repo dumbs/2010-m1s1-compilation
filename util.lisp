@@ -1,5 +1,5 @@
-;; Fonctions utiles
 
+;; Fonctions utiles
 ;; Liste de quelques fonctions pratiques de LISP :
 ;; (rplacd x val) = (setf (cdr x) val)
 ;; (rplaca x val) = (setf (car x) val)
@@ -34,3 +34,35 @@
       t
       (and (consp l)
            (n-consp (- n 1) (cdr l)))))
+
+(defun range (a &optional b)
+  (cond ((null b) (range 0 a))
+        ((> a b) (loop for i from a above (- b 1) collect i))
+        (T (loop for i from a to b collect i))))
+
+(defun shift (n l)
+  (if (<= n 0)
+      l
+    (shift (- n 1) (cdr l))))
+
+(defmacro curry (fun &rest params)
+  `(lambda (&rest actual-params)
+     (apply ,fun
+            ,@(mapcar (lambda (x n)
+                        (if (eq :skip x)
+                            `(nth ,(- n 1) actual-params)
+                          x))
+                      params
+                      (range (length params)))
+            (shift ,(count-if (lambda (x) (eq x :skip)) params)
+                   actual-params))))
+
+(defun readfile (name)
+  (let ((fd (open name)))
+  `(progn 
+    ,(loop
+     for line = (read fd nil 'eof)
+     when (not (eq line 'eof))
+     do (cons line nil)
+     else return (close fd)
+     ))))
