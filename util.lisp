@@ -73,7 +73,7 @@
 (defmacro get-defun (symb)
   `(get ,symb :defun))
 
-(defun set-defun (li)
+(defun set-defun (symb expr)
   (setf (get-defun (cdaddr li))
         (cdddr li)))
 

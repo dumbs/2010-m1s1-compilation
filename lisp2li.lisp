@@ -61,7 +61,7 @@
 	   ,(transform-quasiquote (cdr expr))))))
 
 (defun get-nb-params (params)
-  "renvoie le nombre exact de paramètres sans les &optional et &rest"
+  "Renvoie le nombre exact de paramètres sans les &optional et &rest"
   (defun get-nb-params-t (params r)
     (cond ((endp params)
            r)
@@ -71,6 +71,11 @@
           (T
            (get-nb-params-t (cdr params) (+ 1 r)))))
   (get-nb-params-t params 0))
+
+(defun implicit-progn (expr)
+  (if (n-consp 2 expr)
+      (cons 'progn  expr)
+    (car expr)))
 
 (defun lisp2li (expr env)
   "Convertit le code LISP en un code intermédiaire reconnu
@@ -90,11 +95,11 @@ par le compilateur et par l’interpréteur"
     (if (member '&rest (second expr))
       `(:lclosure . (,(get-nb-params (second expr))
                            ,(+ 1 (mposition '&rest (second expr)))
-                           ,(lisp2li (caddr expr)
-                                    (make-stat-env (second expr)))))
+                           ,(lisp2li (implicit-progn (cddr expr))
+                                    (make-stat-env (second expr) env))))
       `(:lclosure . ,(cons (get-nb-params (second expr))
-                           (lisp2li (caddr expr)
-                                    (make-stat-env (second expr)))))))
+                           (lisp2li (implicit-progn (cddr expr))
+                                    (make-stat-env (second expr) env))))))
    ;; lambda ex: ((lambda (x) x) 1)
    ((and (consp (car expr))
          (eq 'lambda (caar expr)))
@@ -140,6 +145,9 @@ par le compilateur et par l’interpréteur"
    ;; progn
    ((eq 'progn (car expr))
     (cons :progn (map-lisp2li (cdr expr) env)))
+   ;; declaim
+   ((eq 'declaim (car expr))
+    (cons :const nil))
    ;; macros
    ((macro-function (car expr))
     (lisp2li (macroexpand expr) env))
@@ -246,9 +254,25 @@ par le compilateur et par l’interpréteur"
                       (:cvar 0 2)
                       (:cvar 0 3)))
 
+(deftest (lisp2li lambda)
+  (lisp2li `(lambda (x y z) (list x y z) (+ x y)) ())
+  '(:lclosure 3 :progn (:call list
+                               (:cvar 0 1)
+                               (:cvar 0 2)
+                               (:cvar 0 3))
+                        (:call +
+                               (:cvar 0 1)
+                               (:cvar 0 2))))
+
+(deftest (lisp2li rest)
+  (lisp2li `(lambda (x &rest y) (cons x y)) ())
+  '(:lclosure 2 2 (:call cons
+              (:cvar 0 1)
+              (:cvar 0 2))))
+
 (deftest (lisp2li unknown)
-  (lisp2li '(foo 3) ())
-  '(:unknown (foo 3) ()))
+  (lisp2li '(bar 3) ())
+  '(:unknown (bar 3) ()))
 
 (deftest (lisp2li function)
   (lisp2li '#'car ())
