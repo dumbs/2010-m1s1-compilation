@@ -84,3 +84,13 @@
   (setf (get-defmacro (cdaddr li))
         (cdddr li)))
 
+(defun mposition (symb list)
+  (defun mposition-t (symb list counter)
+    (cond ((endp list) nil)
+          ((eq symb (car list)) counter)
+          ((or (eq (car list) '&optional)
+              (eq (car list) '&rest))
+          (mposition-t symb (cdr list) counter))
+          (T
+           (mposition-t symb (cdr list) (+ 1 counter)))))
+  (mposition-t symb list 0))

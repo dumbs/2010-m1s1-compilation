@@ -89,7 +89,7 @@ par le compilateur et par l’interpréteur"
    ((eq 'lambda (car expr)) ;; TODO : ameliorer le cas du lambda
     (if (member '&rest (second expr))
       `(:lclosure . (,(get-nb-params (second expr))
-                           ,(+ 1 (position '&rest (second expr)))
+                           ,(+ 1 (mposition '&rest (second expr)))
                            ,(lisp2li (caddr expr)
                                     (make-stat-env (second expr)))))
       `(:lclosure . ,(cons (get-nb-params (second expr))
@@ -204,8 +204,8 @@ par le compilateur et par l’interpréteur"
   '(:if (:const . T) (:const . T) (:const . nil)))
 
 (deftest (lisp2li defun)
-  (lisp2li '(defun foo (x) x) ())
-  '(:mcall set-defun (:const . foo) (:lclosure 1 :cvar 0 1)))
+  (lisp2li '(defun bar (x) x) ())
+  '(:mcall set-defun (:const . bar) (:lclosure 1 :cvar 0 1)))
 
 (deftest (lisp2li defun)
   (lisp2li '(defun foo (x y z) (list x y z)) ())
