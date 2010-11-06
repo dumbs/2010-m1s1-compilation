@@ -13,10 +13,13 @@
   (mapcar (lambda (x) (meval x env)) list))
 
 (defun meval-progn (list env)
-  (loop
-   for expr in list
-   do (meval expr env)
-  ))
+  (if (endp list)
+      nil
+    (if (endp (cdr list))
+        (meval (car list) env)
+      (progn
+        (meval (car list) env)
+        (meval-progn (cdr list) env)))))
 
 (defun meval (expr &optional env)
   "Interprète le langage intermédiaire passé en paramètre."
@@ -34,7 +37,7 @@
         ((match :call (first expr))
          (apply (symbol-function (cadr expr)) (map-meval (cddr expr) env)))
         ((match :progn (first expr))
-         (map-meval ())
+         (meval-progn (cdr expr)))
         (T
          (error "form special ~S not yet implemented" (car expr)))))
 
