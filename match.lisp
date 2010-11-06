@@ -1104,7 +1104,7 @@
                                                 (intern (format nil "LABELS-~w" param)))
                                               params)
                                ,@fbody)))
-                   declarations))
+                   name params fbody))
   '((foo . (lambda (labels-x labels-y) (list x y)))
     (bar . (lambda (labels-z labels-w) (print z) (print w)))
     (quux . (lambda ()))))
