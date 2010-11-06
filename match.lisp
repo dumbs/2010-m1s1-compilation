@@ -33,39 +33,34 @@
 ;; Dans le cas où le pattern n'est pas "simple", la valeur correspondante
 ;; sera une liste de toutes les occurences de pattern
 
-(defun pattern-match-do-lambdas-? (pattern)
+(defun pattern-match-do-lambdas-transform (pattern)
   (mapcar (lambda (pred)
-            (cond ((atom pred)               (list 'quote pred))
+            (cond ((atom pred)               (list 'function pred))
                   ((eq (car pred) 'function) pred)
                   ((eq (car pred) 'lambda)   pred)
                   (t
                    `(lambda (x) ,pred))))
           (cdr pattern)))
 
-(defmacro pattern-match-do-lambdas (pattern)
-  "Transforme les (? x <code>) et (? (lambda ...)) en vrais lambdas."
-  (cond
-    ;; (? x <code>)
-    ((and (consp pattern) (eq '? (first pattern)))
-     (cond ((atom (cdr pattern))       `(list '? 'and #'identity))
-           ((eq 'and (second pattern)) `(list '? 'and ,@(pattern-match-do-lambdas-? (cdr pattern))))
-           ((eq 'or  (second pattern)) `(list '? 'or  ,@(pattern-match-do-lambdas-? (cdr pattern))))
-           (t                          `(list '? 'and ,@(pattern-match-do-lambdas-? pattern)))))
-    ;; (p1 p2 ... pn)
-    ((consp pattern)
-     ;; Transformation de chaque pattern de la liste y compris
-     ;; le dernier cdr si ce n'est pas nil.
-     (labels ((recurse (pat)
-                (cond ((null pat) nil)
-                      ((atom pat) `(pattern-match-do-lambdas ,pat))
-                      (t          `(cons (pattern-match-do-lambdas ,(car pat))
-                                         ,(recurse (cdr pat)))))))
-       (recurse pattern)))
-    ;; Autres cas
-    (t
-     (list 'quote pattern))))
+(defun pattern-match-do-lambdas-1 (pattern)
+  (if (atom pattern)
+      `',pattern
+      `(list ',(first pattern)
+             ',(second pattern)
+             ,(if (second pattern)
+                  (let ((?-clause (third pattern)))
+                    (cond ((atom (cdr ?-clause))       `(list 'and #'identity))
+                          ((eq 'and (second ?-clause)) `(list 'and ,@(pattern-match-do-lambdas-transform (cdr ?-clause))))
+                          ((eq 'or  (second ?-clause)) `(list 'or  ,@(pattern-match-do-lambdas-transform (cdr ?-clause))))
+                          (t                           `(list 'and ,@(pattern-match-do-lambdas-transform ?-clause)))))
+                  (pattern-match-do-lambdas-1 (third pattern)))
+             ',(fourth pattern)
+             ,(pattern-match-do-lambdas-1 (fifth pattern)))))
 
-;; TODO : renomer cette fonction
+(defmacro pattern-match-do-lambdas (pattern)
+  "Transforme les (? (<code>)) et (? (lambda ...)) en vrais lambdas."
+  (pattern-match-do-lambdas-1 pattern))
+
 (defun transform-symbol-to-multi (pat)
   (let ((str-sym (string pat)))
     (if (< (length str-sym) 2)
@@ -118,13 +113,16 @@
         (t
          pattern)))
 
+(defun keyword-to-symbol (keyword)
+  (intern (format nil "~a" keyword)))
+
 (defun pattern-match-preprocess-capture (pattern &optional capture-name)
   "Transforme pattern en un arbre (capture-name is-predicate pattern multi rest)."
   (if (and (consp pattern) (keywordp (car pattern)))
       ;; capture-name
       (if (and (n-consp 2 (cdr pattern)) (member (caddr pattern) '(* + ?)))
           ;; avec capture-name, avec multi
-          (list capture-name
+          (list (keyword-to-symbol capture-name)
                 nil
                 (pattern-match-preprocess-capture (second pattern) (first pattern))
                 (third pattern)
@@ -133,21 +131,21 @@
           (cond
             ;; (:x . a)
             ((atom (cdr pattern))
-             (list (car pattern)
+             (list (keyword-to-symbol (car pattern))
                    nil
                    (cdr pattern)
                    nil
                    nil))
             ;; (:x . (? ...))
             ((and (consp pattern) (eq '? (cadr pattern)))
-             (list (car pattern)
+             (list (keyword-to-symbol (car pattern))
                    t
                    (cdr pattern)
                    nil
                    nil)) ;; TODO
             ;; (:x cadr-pattern . cddr-pattern)
             (t
-             (list capture-name
+             (list (keyword-to-symbol capture-name)
                    nil
                    (pattern-match-preprocess-capture (cadr pattern) (car pattern))
                    nil
@@ -155,7 +153,7 @@
       ;; pas de capture-name
       (if (and (n-consp 2 pattern) (member (cadr pattern) '(* + ?)))
           ;; sans capture-name, avec multi
-          (list capture-name
+          (list (keyword-to-symbol capture-name)
                 nil
                 (pattern-match-preprocess-capture (first pattern))
                 (second pattern)
@@ -164,21 +162,21 @@
           (cond
             ;; a
             ((atom pattern)
-             (list capture-name
+             (list (keyword-to-symbol capture-name)
                    nil
                    pattern
                    nil
                    nil))
             ;; (? ...)
             ((and (consp pattern) (eq '? (car pattern)))
-             (list capture-name
+             (list (keyword-to-symbol capture-name)
                    t
                    pattern
                    nil
                    nil))
             ;; (car-pattern . cdr-pattern)
             (t
-             (list capture-name
+             (list (keyword-to-symbol capture-name)
                    nil
                    (pattern-match-preprocess-capture (car pattern))
                    nil
@@ -235,23 +233,22 @@
 (defun make-empty-matches-1 (pattern result)
   (if (atom pattern)
       result
-      (let* ((here (if (and (not (second pattern)) ;; pas les (? ...)
-                            (first pattern))       ;; pas les captures nommées nil
-                       (acons (first pattern) nil result)
-                       result))
-             (left (make-empty-matches-1 (third pattern) here))
-             (right (make-empty-matches-1 (fifth pattern) left)))
-        right)))
-        
+      (let ((here (if (first pattern)       ;; pas les captures nommées nil
+                      (acons (first pattern) nil result)
+                      result)))
+        (if (second pattern) ;; ne pas descendre dans les les (? ...)
+            here
+            (make-empty-matches-1 (fifth pattern)
+                                  (make-empty-matches-1 (third pattern) here))))))
+
+(defun make-empty-matches (pattern)
+  (reverse (make-empty-matches-1 pattern '())))
+   
 (defun acons-capture (capture-name value captures)
   (if (or capture-name (not captures))
       (acons capture-name value captures)
       captures))
 
-(defun make-empty-matches (pattern)
-  (reverse (make-empty-matches-1 pattern '())))
-
-   
 (defun append-car-cdr-not-nil (c)
   (if (or (car c) (cdr c))
       (append (car c) (cdr c))
@@ -333,11 +330,11 @@
               (is-predicate
                (when (cond
                        ;; (? and symbole-1 ... symbole-n)
-                       ((eq 'and (second pattern))
-                        (every (lambda (predicat) (funcall predicat expr)) (cddr pattern)))
+                       ((eq 'and (first pattern))
+                        (every (lambda (predicat) (funcall predicat expr)) (cdr pattern)))
                        ;; (? or symbole-1 ... symbole-n)
-                       ((eq 'or (second pattern))
-                        (some (lambda (predicat) (funcall predicat expr)) (cddr pattern))))
+                       ((eq 'or (first pattern))
+                        (some (lambda (predicat) (funcall predicat expr)) (cdr pattern))))
                  (acons-capture capture-name expr nil)))
               ;; ()
               ((null pattern)
@@ -364,18 +361,36 @@
                (when (equal pattern expr)
                  (acons-capture capture-name expr nil))))))))
 
+(defmacro pattern-match-preprocess (pattern)
+  "Tous les preprocess de pattern-match en un seul appel."
+  `(pattern-match-do-lambdas
+    ,(pattern-match-preprocess-capture
+      (pattern-match-preprocess-multi
+       pattern))))
+
 ;; Attention ! le remove est un peu trop drastique s'il n'y a pas de capture, on renvoie nil quleque soit le résultat !
-(defmacro match (pattern expr)
-  (let ((result-sym (make-symbol "result")))
-    `(let ((,result-sym (pattern-match
-                         (pattern-match-preprocess-capture
-                          (pattern-match-preprocess-multi
-                           (pattern-match-do-lambdas ,pattern)))
-                         ,expr)))
-       ;; Filtrage des captures nommées nil.
-       (when ,result-sym
-         (or (remove nil ,result-sym :key #'car)
-             t)))))
+(defmacro match (pattern expr &rest body)
+  (if (keywordp pattern)
+      `(match (,pattern . ,expr) ,(car body) ,@(cdr body))
+      (let* ((result-sym (make-symbol "result"))
+             (pattern-sym (make-symbol "pattern"))
+             (pattern-preproc (pattern-match-preprocess-capture
+                               (pattern-match-preprocess-multi
+                                pattern)))
+             (capture-names (mapcar #'car (make-empty-matches pattern-preproc))))
+        `(let* ((,pattern-sym (pattern-match-do-lambdas ,pattern-preproc))
+                (,result-sym (pattern-match ,pattern-sym ,expr)))
+           ;; Filtrage des captures nommées nil.
+           (when ,result-sym
+             (let ,(mapcar (lambda (x)
+                             `(,x (cdr (assoc ',x ,result-sym))))
+                           capture-names)
+               ;; "utilisation" des variables pour éviter les warning unused variable.
+               ,@(if body
+                     (append capture-names body)
+                     (if capture-names
+                         `((list ,@capture-names))
+                         `(t)))))))))
 
 (load "test-unitaire")
 (erase-tests match)
@@ -906,145 +921,91 @@
 ;; Tests de preprocess-capture
 
 (deftest (match preprocess-capture)
-    (pattern-match-preprocess-capture
-     (pattern-match-preprocess-multi
-      (pattern-match-do-lambdas
-       (:x . nil))))
-  '(:x nil nil nil nil))
+    (pattern-match-preprocess (:x . nil))
+  '(x nil nil nil nil))
 
 (deftest (match preprocess-capture)
-    (pattern-match-preprocess-capture
-     (pattern-match-preprocess-multi
-      (pattern-match-do-lambdas
-       (:x . a))))
-  '(:x nil a nil nil))
+    (pattern-match-preprocess (:x . a))
+  '(x nil a nil nil))
 
 (deftest (match preprocess-capture)
-    (pattern-match-preprocess-capture
-     (pattern-match-preprocess-multi
-      (pattern-match-do-lambdas
-       (:x . (a)))))
-  '(nil nil (:x nil a nil nil) nil (nil nil nil nil nil)))
+    (pattern-match-preprocess (:x . (a)))
+  '(nil nil (x nil a nil nil) nil (nil nil nil nil nil)))
 
 (deftest (match preprocess-capture)
-    (pattern-match-preprocess-capture
-     (pattern-match-preprocess-multi
-      (pattern-match-do-lambdas
-       (:x a))))
-  '(nil nil (:x nil a nil nil) nil (nil nil nil nil nil)))
+    (pattern-match-preprocess (:x a))
+  '(nil nil (x nil a nil nil) nil (nil nil nil nil nil)))
 
     
 (deftest (match preprocess-capture)
-    (pattern-match-preprocess-capture
-     (pattern-match-preprocess-multi
-      (pattern-match-do-lambdas
-       (:x a *))))
-  '(nil nil (:x nil a nil nil) * (nil nil nil nil nil)))
+    (pattern-match-preprocess (:x a *))
+  '(nil nil (x nil a nil nil) * (nil nil nil nil nil)))
 
 (deftest (match preprocess-capture)
-    (pattern-match-preprocess-capture
-     (pattern-match-preprocess-multi
-      (pattern-match-do-lambdas
-       (a *))))
+    (pattern-match-preprocess (a *))
   '(nil nil (nil nil a nil nil) * (nil nil nil nil nil)))
 
 (deftest (match preprocess-capture)
-    (pattern-match-preprocess-capture
-     (pattern-match-preprocess-multi
-      (pattern-match-do-lambdas
-       (:x (a) *))))
-  '(nil nil (:x nil (nil nil a nil nil) nil (nil nil nil nil nil)) * (nil nil nil nil nil)))
+    (pattern-match-preprocess (:x (a) *))
+  '(nil nil (x nil (nil nil a nil nil) nil (nil nil nil nil nil)) * (nil nil nil nil nil)))
 
 (deftest (match preprocess-capture)
-    (pattern-match-preprocess-capture
-     (pattern-match-preprocess-multi
-      (pattern-match-do-lambdas
-       nil)))
+    (pattern-match-preprocess nil)
   '(nil nil nil nil nil))
 
 (deftest (match preprocess-capture)
-    (pattern-match-preprocess-capture
-     (pattern-match-preprocess-multi
-      (pattern-match-do-lambdas
-       a)))
+    (pattern-match-preprocess a)
   '(nil nil a nil nil))
 
 (deftest (match preprocess-capture)
-    (pattern-match-preprocess-capture
-     (pattern-match-preprocess-multi
-      (pattern-match-do-lambdas
-       (a))))
+    (pattern-match-preprocess (a))
   '(nil nil (nil nil a nil nil) nil (nil nil nil nil nil)))
 
 (deftest (match preprocess-capture)
-    (pattern-match-preprocess-capture
-     (pattern-match-preprocess-multi
-      (pattern-match-do-lambdas
-       (a * b))))
+    (pattern-match-preprocess (a * b))
   '(nil nil (nil nil a nil nil) * (nil nil (nil nil b nil nil) nil (nil nil nil nil nil))))
 
 (deftest (match preprocess-capture)
-    (pattern-match-preprocess-capture
-     (pattern-match-preprocess-multi
-      (pattern-match-do-lambdas
-       ((a)* b))))
+    (pattern-match-preprocess ((a)* b))
   '(nil nil (nil nil (nil nil a nil nil) nil (nil nil nil nil nil)) * (nil nil (nil nil b nil nil) nil (nil nil nil nil nil))))
-
-(pattern-match-preprocess-capture
- (pattern-match-preprocess-multi
-  (pattern-match-do-lambdas
-   (:x (a*) :y b))))
 
 ;;;; Tests de capture (variables)
 
 (deftest (match append-captures)
-    (append-captures '((:x . (foo bar)) (:y . foo) (:z . bar))
-                     '(((:x . nil) (:y . nil) (:z . nil)) (:e . x)))
-  '(((:x . ((foo bar))) (:y . (foo)) (:z . (bar))) (:e . x)))
+    (append-captures '((x . (foo bar)) (y . foo) (z . bar))
+                     '(((x . nil) (y . nil) (z . nil)) (e . x)))
+  '(((x . ((foo bar))) (y . (foo)) (z . (bar))) (e . x)))
 
 (deftest (match append-captures)
-    (append-captures '((:x . (1 2)) (:y . 1) (:z . 2))
-                     '(((:x . ((foo bar))) (:y . (foo)) (:z . (bar))) (:e . x)))
-  '(((:x . ((1 2) (foo bar))) (:y . (1 foo)) (:z . (2 bar))) (:e . x)))
+    (append-captures '((x . (1 2)) (y . 1) (z . 2))
+                     '(((x . ((foo bar))) (y . (foo)) (z . (bar))) (e . x)))
+  '(((x . ((1 2) (foo bar))) (y . (1 foo)) (z . (2 bar))) (e . x)))
 
 (deftest (match make-empty-matches)
-    (make-empty-matches (pattern-match-preprocess-capture
-                         (pattern-match-preprocess-multi
-                          (pattern-match-do-lambdas (:y _ :z _)))))
-  '((:y . nil) (:z . nil)))
+    (make-empty-matches (pattern-match-preprocess (:y _ :z _)))
+  '((y . nil) (z . nil)))
 
 (deftest (match make-empty-matches)
-    (make-empty-matches (pattern-match-preprocess-capture
-                         (pattern-match-preprocess-multi
-                          (pattern-match-do-lambdas ((:y _)* :z _)))))
-  '((:y . nil) (:z . nil)))
-
-;(pattern-match-preprocess-capture
-; (pattern-match-preprocess-multi
-;  (pattern-match-do-lambdas
-;   ((:x a* b)))))
-;
-;(match (:x (_ * _)*) '((a) (a) (a)))
-;(match (:x (a b* c)) '((a b c)))
-;(match ((:x a* b)) '((a a a b)))
+    (make-empty-matches (pattern-match-preprocess ((:y _)* :z _)))
+  '((y . nil) (z . nil)))
 
 (deftest (match capture misc)
     (match (:x ((:y _)* :z _)*) '(((foo) (bar) baz) ((1) 2) ((a) (b) (c) d)))
-  '((:x . (((foo) (bar) baz) ((1) 2) ((a) (b) (c) d)))
-    (:y . ((foo bar) (1) (a b c)))
-    (:z . (baz 2 d))))
+  '((x . (((foo) (bar) baz) ((1) 2) ((a) (b) (c) d)))
+    (y . ((foo bar) (1) (a b c)))
+    (z . (baz 2 d))))
 
 (deftest (match capture misc)
     (match (:x ((:y _)* :z _)*) '(((foo) (bar) baz) (2) ((a) (b) (c) d)))
-  '((:x . (((foo) (bar) baz) (2) ((a) (b) (c) d)))
-    (:y . ((foo bar) () (a b c)))
-    (:z . (baz 2 d))))
+  '((x . (((foo) (bar) baz) (2) ((a) (b) (c) d)))
+    (y . ((foo bar) () (a b c)))
+    (z . (baz 2 d))))
 
 (deftest (match capture misc)
     (match (:x ((:y _)* :z _)*) '())
-  '((:x . ())
-    (:y . ())
-    (:z . ())))
+  '((x . ())
+    (y . ())
+    (z . ())))
 
 (deftest (match capture keyword-for-single-pattern) (match (:x . _) '(foo bar baz) x) '(foo bar baz))
 (deftest (match capture keyword-for-single-pattern) (match :x _ '(foo bar baz) x) '(foo bar baz))
