@@ -1,12 +1,23 @@
 (load "match")
+
+(defun get-env-num (num env)
+  (defun get-env-num-t (num env counter)
+    (cond ((= counter num) env)
+          ((eq (aref env 0) nil) nil)
+          (T
+           (get-env-num-t num (aref env 0) (+ 1 counter))
+           )))
+  (get-env-num-t num env 0))
+
 (defun meval (expr &optional env)
   "Interprète le langage intermédiaire passé en paramètre."
   (cond ((match :const (first expr))
          (cdr expr))
         ((match :cvar (first expr))
-         )
-        ((match :lclosure (first expr))
-         )
+         (let ((sub-env (get-env-num (second expr) env)))
+           (if sub-env
+               (aref sub-env (third expr))
+             (error "The variable ~S is unbound" (cdr expr)))))
         (T
          (error "form special ~S not yet implemented" expr))))
 
@@ -46,7 +57,7 @@
 
 (deftest (meval quote)
   (meval (lisp2li '''3 ()))
-  '3)
+  ''3)
 
 (deftest (meval :cvar)
   (meval (lisp2li 'x '((x 0 2))) #(() 4 5 6))
