@@ -57,12 +57,40 @@
             (shift ,(count-if (lambda (x) (eq x :skip)) params)
                    actual-params))))
 
-(defun readfile (name)
+(defun mload (name)
   (let ((fd (open name)))
-  `(progn 
-    ,(loop
-     for line = (read fd nil 'eof)
-     when (not (eq line 'eof))
-     do (cons line nil)
-     else return (close fd)
-     ))))
+    (cons 'progn
+          (loop
+           for line = (read fd nil 'eof)
+           while (not (eq line 'eof))
+           collect line
+           finally (close fd)
+           ))))
+
+(defun m-macroexpand-1 (macro)
+  ())
+
+(defmacro get-defun (symb)
+  `(get ,symb :defun))
+
+(defun set-defun (symb expr)
+  (setf (get-defun (cdaddr li))
+        (cdddr li)))
+
+(defmacro get-defmacro (symb)
+  `(get ,symb :defmacro))
+
+(defun set-defmacro (li)
+  (setf (get-defmacro (cdaddr li))
+        (cdddr li)))
+
+(defun mposition (symb list)
+  (defun mposition-t (symb list counter)
+    (cond ((endp list) nil)
+          ((eq symb (car list)) counter)
+          ((or (eq (car list) '&optional)
+              (eq (car list) '&rest))
+          (mposition-t symb (cdr list) counter))
+          (T
+           (mposition-t symb (cdr list) (+ 1 counter)))))
+  (mposition-t symb list 0))
