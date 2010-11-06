@@ -66,3 +66,8 @@
      do (cons line nil)
      else return (close fd)
      ))))
+
+(defun propper-list-p (l)
+  (or (endp l)
+	  (and (consp l)
+		   (propper-list-p (cdr l)))))
