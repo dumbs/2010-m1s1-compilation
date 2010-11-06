@@ -57,7 +57,7 @@
             (shift ,(count-if (lambda (x) (eq x :skip)) params)
                    actual-params))))
 
-(defun readfile (name)
+(defun mload (name)
   (let ((fd (open name)))
     (cons 'progn
           (loop
