@@ -80,13 +80,15 @@
   `(test-add-variable ',module
                       (list ',name (list 'copy-tree ',value))))
 
+(defvar run-tests-counter 0)
+
+(declaim (ftype function real-run-tests)) ;; récursion mutuelle real-run-tests / run-tests-submodules
 (defun run-tests-submodules (module-name submodules)
   (if (endp submodules)
       t
       (and (real-run-tests (append module-name (list (caar submodules))) (cdar submodules))
            (run-tests-submodules module-name (cdr submodules)))))
 
-(defvar run-tests-counter 0)
 (defun real-run-tests (module-name from)
   (if (second from)
       (progn

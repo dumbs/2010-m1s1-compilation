@@ -68,6 +68,6 @@
      ))))
 
 (defun propper-list-p (l)
-  (or (endp l)
+  (or (null l)
 	  (and (consp l)
 		   (propper-list-p (cdr l)))))

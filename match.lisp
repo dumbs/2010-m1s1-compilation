@@ -243,29 +243,15 @@
              (right (make-empty-matches-1 (fifth pattern) left)))
         right)))
         
-(defun make-empty-matches (pattern capture-name)
-  (acons-capture capture-name nil (reverse (make-empty-matches-1 pattern '()))))
-
 (defun acons-capture (capture-name value captures)
   (if (or capture-name (not captures))
       (acons capture-name value captures)
       captures))
 
-(defun recursive-backtrack (pattern rest expr capture-name)
-  (or
-   ;; match greedy (on avance dans le *)
-   (and (consp expr)
-        (let ((greedy-left (pattern-match pattern (car expr))))
-          (when greedy-left
-            (let ((greedy-right (recursive-backtrack pattern rest (cdr expr) capture-name)))
-              (when greedy-right
-                (append-captures (acons-capture capture-name (car expr) greedy-left)
-                                 greedy-right))))))
-   ;; match non-greedy (on match avec le rest)
-   (let ((non-greedy (pattern-match rest expr)))
-     (when non-greedy
-       (cons (make-empty-matches pattern capture-name) non-greedy)))))
-    
+(defun make-empty-matches (pattern)
+  (reverse (make-empty-matches-1 pattern '())))
+
+   
 (defun append-car-cdr-not-nil (c)
   (if (or (car c) (cdr c))
       (append (car c) (cdr c))
@@ -282,6 +268,23 @@
   (or (append-not-nil-1 a b)
       (acons nil nil nil)))
 
+(declaim (ftype function pattern-match)) ;; récursion mutuelle recursive-backtrack / pattern-match
+(defun recursive-backtrack (pattern rest expr capture-name)
+  (or
+   ;; match greedy (on avance dans le *)
+   (and (consp expr)
+        (let ((greedy-left (pattern-match pattern (car expr))))
+          (when greedy-left
+            (let ((greedy-right (recursive-backtrack pattern rest (cdr expr) capture-name)))
+              (when greedy-right
+                (append-captures (acons-capture capture-name (car expr) greedy-left)
+                                 greedy-right))))))
+   ;; match non-greedy (on match avec le rest)
+   (let ((non-greedy (pattern-match rest expr)))
+     (when non-greedy
+       (cons (acons-capture capture-name expr (make-empty-matches pattern))
+             non-greedy)))))
+
 (defun pattern-match (pat expr)
   (let ((capture-name (first pat))
         (is-predicate (second pat))
@@ -289,30 +292,33 @@
         (multi (fourth pat))
         (rest (fifth pat)))
     (if multi
-        (cond
-          ;; (pattern * ...)
-          ((eq multi '*)
-           (let ((match (recursive-backtrack pattern rest expr capture-name)))
-             (when match
-               (append-car-cdr-not-nil match))))
-          ;; (pattern + ...)
-          ((eq multi '+)
-           (let ((first-match (and (consp expr) (pattern-match pattern (car expr)))))
-             (when first-match
-               (let ((match (recursive-backtrack pattern rest (cdr expr) capture-name)))
+        (if (not (listp expr))
+            nil
+            (cond
+              ;; (pattern * ...)
+              ((eq multi '*)
+               (let ((match (recursive-backtrack pattern rest expr capture-name)))
                  (when match
-                   (let ((result (append-captures first-match match)))
-                     (append-car-cdr-not-nil result)))))))
-          ;; (pattern ? ...)
-          ((eq multi '?)
-           (let ((match (and (consp expr) (pattern-match pattern (car expr)))))
-             (if match
-                 (let ((match-rest (pattern-match rest (cdr expr))))
-                   (when match-rest
-                     (append match match-rest))) ;; TODO : vérifier qu'on n'a pas besoin d'un make-empty-matches en cas de non-match de sous-trucs. (normalement non)
-                 (let ((match-rest (pattern-match rest expr)))
-                   (when match-rest
-                     (append (make-empty-matches pattern capture-name) match-rest)))))))
+                   (append-car-cdr-not-nil match))))
+              ;; (pattern + ...)
+              ((eq multi '+)
+               (let ((first-match (and (consp expr) (pattern-match pattern (car expr)))))
+                 (when first-match
+                   (let ((match (recursive-backtrack pattern rest (cdr expr) capture-name)))
+                     (when match
+                       (let ((result (append-captures first-match match)))
+                         (append-car-cdr-not-nil result)))))))
+              ;; (pattern ? ...)
+              ((eq multi '?)
+               (let ((match (and (consp expr) (pattern-match pattern (car expr)))))
+                 (or (when match
+                       (let ((match-rest (pattern-match rest (cdr expr))))
+                         (when match-rest
+                           (append match match-rest)))) ;; TODO : vérifier qu'on n'a pas besoin d'un make-empty-matches en cas de non-match de sous-trucs. (normalement non)
+                     (let ((match-only-rest (pattern-match rest expr)))
+                       (when match-only-rest
+                         (append (acons-capture capture-name expr (make-empty-matches pattern))
+                                 match-only-rest))))))))
         (if rest
             ;; (pattern . rest)
             (and (consp expr)
@@ -370,8 +376,6 @@
        (when ,result-sym
          (or (remove nil ,result-sym :key #'car)
              t)))))
-
-(match (:x (a*) :y b* c) '((a a a) b b b c))
 
 (load "test-unitaire")
 (erase-tests match)
@@ -994,20 +998,35 @@
 ;;;; Tests de capture (variables)
 
 (deftest (match append-captures)
-    (append-captures '((:x . (foo bar)) (:y . foo) (:z . bar)) '(((:x . nil) (:y . nil) (:z . nil)) (:e . x)))
+    (append-captures '((:x . (foo bar)) (:y . foo) (:z . bar))
+                     '(((:x . nil) (:y . nil) (:z . nil)) (:e . x)))
   '(((:x . ((foo bar))) (:y . (foo)) (:z . (bar))) (:e . x)))
 
 (deftest (match append-captures)
-    (append-captures '((:x . (1 2)) (:y . 1) (:z . 2)) '(((:x . ((foo bar))) (:y . (foo)) (:z . (bar))) (:e . x)))
+    (append-captures '((:x . (1 2)) (:y . 1) (:z . 2))
+                     '(((:x . ((foo bar))) (:y . (foo)) (:z . (bar))) (:e . x)))
   '(((:x . ((1 2) (foo bar))) (:y . (1 foo)) (:z . (2 bar))) (:e . x)))
 
 (deftest (match make-empty-matches)
-    (make-empty-matches '(:y _ :z _) :x)
-  '((:x . nil) (:y . nil) (:z . nil)))
+    (make-empty-matches (pattern-match-preprocess-capture
+                         (pattern-match-preprocess-multi
+                          (pattern-match-do-lambdas (:y _ :z _)))))
+  '((:y . nil) (:z . nil)))
 
 (deftest (match make-empty-matches)
-    (make-empty-matches '((:y _)* :z _) :x)
-  '((:x . nil) (:y . nil) (:z . nil)))
+    (make-empty-matches (pattern-match-preprocess-capture
+                         (pattern-match-preprocess-multi
+                          (pattern-match-do-lambdas ((:y _)* :z _)))))
+  '((:y . nil) (:z . nil)))
+
+;(pattern-match-preprocess-capture
+; (pattern-match-preprocess-multi
+;  (pattern-match-do-lambdas
+;   ((:x a* b)))))
+;
+;(match (:x (_ * _)*) '((a) (a) (a)))
+;(match (:x (a b* c)) '((a b c)))
+;(match ((:x a* b)) '((a a a b)))
 
 (deftest (match capture misc)
     (match (:x ((:y _)* :z _)*) '(((foo) (bar) baz) ((1) 2) ((a) (b) (c) d)))
