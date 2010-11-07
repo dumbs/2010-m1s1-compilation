@@ -53,6 +53,7 @@
                     (when (and (consp ?-clause) (member (car ?-clause) '(nil _ $ @ @.)))
                       (setq type (car ?-clause))
                       (setq ?-clause (cdr ?-clause)))
+                    ;; TODO : (? or foo (? _ and bar baz) (? $ and quux))
                     (cond ((atom ?-clause)            `(list ',type 'and #'identity))
                           ((eq 'and (first ?-clause)) `(list ',type 'and ,@(pattern-match-do-lambdas-transform (cdr ?-clause))))
                           ((eq 'or  (first ?-clause)) `(list ',type 'or  ,@(pattern-match-do-lambdas-transform (cdr ?-clause))))
@@ -60,8 +61,6 @@
                   (pattern-match-do-lambdas-1 (third pattern)))
              ',(fourth pattern)
              ,(pattern-match-do-lambdas-1 (fifth pattern)))))
-
-(pattern-match-preprocess (? car cdr))
 
 (defmacro pattern-match-do-lambdas (pattern)
   "Transforme les (? (<code>)) et (? (lambda ...)) en vrais lambdas."
@@ -375,30 +374,147 @@
       (pattern-match-preprocess-multi
        pattern))))
 
-;; Attention ! le remove est un peu trop drastique s'il n'y a pas de capture, on renvoie nil quleque soit le résultat !
+(defmacro real-match (pattern expr body &optional else-clause)
+  (let* ((result-sym (make-symbol "result"))
+         (pattern-sym (make-symbol "pattern"))
+         (pattern-preproc (pattern-match-preprocess-capture
+                           (pattern-match-preprocess-multi
+                            pattern)))
+         (capture-names (mapcar #'car (make-empty-matches pattern-preproc))))
+    `(let* ((,pattern-sym (pattern-match-do-lambdas ,pattern-preproc))
+            (,result-sym (pattern-match ,pattern-sym ,expr)))
+       ;; Filtrage des captures nommées nil.
+       (if ,result-sym
+           ,@(if body
+                 `((let ,(mapcar (lambda (x)
+                                   `(,x (cdr (assoc ',x ,result-sym))))
+                                 capture-names)
+                     ;; "utilisation" des variables pour éviter les warning unused variable.
+                     ,@capture-names
+                     ,@body))
+                 (if capture-names
+                     `((remove nil ,result-sym :key #'car))
+                     `(t)))
+           ,else-clause))))
+
 (defmacro match (pattern expr &rest body)
   (if (keywordp pattern)
-      `(match (,pattern . ,expr) ,(car body) ,@(cdr body))
-      (let* ((result-sym (make-symbol "result"))
-             (pattern-sym (make-symbol "pattern"))
-             (pattern-preproc (pattern-match-preprocess-capture
-                               (pattern-match-preprocess-multi
-                                pattern)))
-             (capture-names (mapcar #'car (make-empty-matches pattern-preproc))))
-        `(let* ((,pattern-sym (pattern-match-do-lambdas ,pattern-preproc))
-                (,result-sym (pattern-match ,pattern-sym ,expr)))
-           ;; Filtrage des captures nommées nil.
-           (when ,result-sym
-             ,@(if body
-                   `((let ,(mapcar (lambda (x)
-                                     `(,x (cdr (assoc ',x ,result-sym))))
-                                   capture-names)
-                       ;; "utilisation" des variables pour éviter les warning unused variable.
-                       ,@capture-names
-                       ,@body))
-                   (if capture-names
-                       `((remove nil ,result-sym :key #'car))
-                       `(t))))))))
+      `(real-match (,pattern . ,expr) ,(car body) ,(cdr body))
+      `(real-match ,pattern ,expr ,body)))
+
+(defmacro cond-match-1 (expr cond-clauses)
+  (if (endp cond-clauses)
+      'nil
+      (if (keywordp (caar cond-clauses))
+          `(real-match (,(caar cond-clauses) . ,(cadar cond-clauses))
+                       ,expr
+                       ,(cddar cond-clauses)
+                       (cond-match-1 ,expr ,(cdr cond-clauses)))
+          `(real-match ,(caar cond-clauses)
+                       ,expr
+                       ,(cdar cond-clauses)
+                       (cond-match-1 ,expr ,(cdr cond-clauses))))))
+
+(defmacro cond-match (expr &rest cond-clauses)
+  (let ((expr-sym (make-symbol "expr")))
+    `(let ((,expr-sym ,expr))
+       (cond-match-1 ,expr-sym ,cond-clauses))))
+
+;; Explication du defmatch-closures
+;; 
+;; ========== État initial ==========================================================
+;; 
+;; next-rule -----------> (  (lambda else)  )
+;;                           ^
+;; first-car-next-rule ------|
+;; 
+;; ========== Après un add-pattern-xxx ==============================================
+;;
+;; next-rule -----------> (  (lambda else)  )
+;;                           ^
+;;                           `----------------------------------------.
+;;                                                                    |
+;; old-next-rule -------> (  (lambda (x) (if pattern-1 t (funcall car-next-rule)))  )
+;;                           ^
+;; first-car-next-rule ------|
+;;
+;; ========== Après un autre add-pattern-xxx ========================================
+;;
+;; next-rule -----------> (  (lambda else)  )
+;;                           ^
+;;                           `----------------------------------------.
+;;                                                                    |
+;; old-next-rule -------> (  (lambda (x) (if pattern-2 t (funcall car-next-rule)))  )
+;;                           ^
+;;                           `----------------------------------------.
+;;                                                                    |
+;;                        (  (lambda (x) (if pattern-1 t (funcall car-next-rule)))  )
+;;                           ^
+;; first-car-next-rule ------|
+
+(defmacro defmatch-closures (name &rest patbody)
+  "Une première version de defmatch, techniquement intéressante, mais avec beaucoup trop de closures..."
+  (let ((add-pattern-function (intern (format nil "ADD-PATTERN-~a" name)))
+        (set-else-function (intern (format nil "SET-ELSE-~a" name))))
+    (if patbody
+        (let ((pattern (car patbody))
+              (body (cdr patbody))
+              (param-expr-sym (make-symbol "param-expr"))
+              (tail-sym (make-symbol "tail")))
+          (if (eq pattern 'else)
+              `(,set-else-function ,(if (n-consp 2 body)
+                                        `(lambda ,(car body) ,@(cdr body))
+                                        `(lambda (x) x ,@body)))
+              (if (keywordp pattern)
+                  `(defmatch-closures ,name (,pattern . ,(car body)) ,@(cdr body))
+                  `(,add-pattern-function
+                    (lambda (,param-expr-sym ,tail-sym)
+                      (real-match ,pattern ,param-expr-sym ,body (funcall ,tail-sym ,param-expr-sym)))))))
+        `(let* ((else-rule (list (lambda (x) x nil)))
+                (next-rule (list (list else-rule)))
+                (first-call-next-rule
+                 (let ((car-next-rule (car next-rule)))
+                   (lambda (x) (funcall (caar car-next-rule) x)))))
+           (defun ,name (x)
+             (funcall first-call-next-rule x))
+           (defun ,set-else-function (else)
+             (setf (car else-rule) else))
+           (defun ,add-pattern-function (func)
+             (let ((old-next-rule next-rule))
+               (setq next-rule (list (list else-rule)))
+               (let ((car-next-rule (car next-rule)))
+                 (setf (car (car old-next-rule))
+                       (list (lambda (x) (funcall func x (lambda (x) (funcall (caar car-next-rule) x)))))))))))))
+
+(defmacro defmatch (name &rest patbody)
+  "Version de defmatch avec une seule closure par pattern plus deux par name."
+  (let ((add-pattern-function (intern (format nil "ADD-PATTERN-~a" name)))
+        (set-else-function (intern (format nil "SET-ELSE-~a" name))))
+    (if patbody
+        (let ((pattern (car patbody))
+              (body (cdr patbody))
+              (param-expr-sym (make-symbol "param-expr")))
+          (if (eq pattern 'else)
+              `(,set-else-function ,(if (n-consp 2 body)
+                                        `(lambda ,(car body) ,@(cdr body))
+                                        `(lambda (x) x ,@body)))
+              (if (keywordp pattern)
+                  `(defmatch ,name (,pattern . ,(car body)) ,@(cdr body))
+                  `(,add-pattern-function
+                    (lambda (,param-expr-sym)
+                      (real-match ,pattern
+                                  ,param-expr-sym
+                                  ((cons t ,(cons 'progn body)))
+                                  nil))))))
+        `(let* ((rules nil)
+                (else-rule (lambda (x) x nil)))
+           (defun ,name (x)
+             (cdr (or (some (lambda (r) (funcall r x)) rules)
+                      (cons t (funcall else-rule x)))))
+           (defun ,set-else-function (else)
+             (setf else-rule else))
+           (defun ,add-pattern-function (func)
+             (setf rules (append rules (list func))))))))
 
 (load "test-unitaire")
 (erase-tests match)
@@ -1107,11 +1223,66 @@
              (foo 1 2)
              (bar 3 4))
            (mapcar (lambda (name params fbody)
-                     `(,name (lambda ,(mapcar (lambda (param)
-                                                (intern (format nil "LABELS-~w" param)))
-                                              params)
-                               ,@fbody)))
+                     `(,name . (lambda ,(mapcar (lambda (param)
+                                                  (intern (format nil "LABELS-~w" param)))
+                                                params)
+                                 ,@fbody)))
                    name params fbody))
   '((foo . (lambda (labels-x labels-y) (list x y)))
     (bar . (lambda (labels-z labels-w) (print z) (print w)))
     (quux . (lambda ()))))
+
+(deftest (match cond-match)
+    (cond-match
+     '(a b)
+     ((:x $ $) (list 1 x))
+     ((:y $ @) (list 2 y))
+     ((:z _) (list 3 z)))
+  '(1 a))
+
+(deftest (match cond-match)
+    (cond-match
+     '(a (b))
+     ((:x $ $) (list 1 x))
+     ((:y $ @) (list 2 y))
+     ((:z _) (list 3 z)))
+  '(2 a))
+
+(deftest (match cond-match)
+    (cond-match
+     '(x)
+     ((:x $ $) (list 1 x))
+     ((:y $ @) (list 2 y))
+     ((:z _) (list 3 z)))
+  '(3 x))
+
+
+(defmatch test-match-foo)
+
+(defmatch test-match-foo (:x $ $) (list 'x x))
+(defmatch test-match-foo (:y $ @) (list 'y y))
+(defmatch test-match-foo (:z _) (list 'z z))
+(defmatch test-match-foo else (x) x 'i-m-else)
+
+(deftest (match defmatch)
+    (test-match-foo '(a b))
+  '(x a))
+  
+(deftest (match defmatch)
+    (test-match-foo '(a (b)))
+  '(y a))
+
+(deftest (match defmatch)
+    (test-match-foo '((3)))
+  '(z (3)))
+
+(deftest (match defmatch)
+    (test-match-foo 42)
+  'i-m-else)
+
+(defmatch test-match-bar)
+(defmatch test-match-bar else 'i-m-else)
+(deftest (match defmatch)
+    (test-match-bar 42)
+  'i-m-else)
+
