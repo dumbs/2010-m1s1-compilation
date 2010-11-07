@@ -132,16 +132,16 @@
 
 (erase-tests test-unitaire)
 (deftest (test-unitaire copy-all)
-    (let ((foo #(a b (1 #(2 4 6) 3) c))
-          (copy-of-foo (copy-all foo)))
+    (let* ((foo #(a b (1 #(2 4 6) 3) c))
+           (copy-of-foo (copy-all foo)))
       copy-of-foo
       (setf (aref (cadr (aref copy-of-foo 2)) 1) (cons 'MODIFIED (random 42)))
       (equalp foo #(a b (1 #(2 4 6) 3) c)))
   t #'booleq)
 
 (deftest (test-unitaire copy-all)
-    (let ((foo #(a x (1 #(2 4 7) 5) c))
-          (copy-of-foo (copy-all foo)))
+    (let* ((foo #(a x (1 #(2 4 7) 5) c))
+           (copy-of-foo (copy-all foo)))
       copy-of-foo
       (setf (aref (cadr (aref foo 2)) 1) (cons 'MODIFIED (random 42)))
       (equalp foo #(a x (1 #(2 4 7) 5) c)))

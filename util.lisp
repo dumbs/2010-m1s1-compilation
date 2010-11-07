@@ -68,8 +68,12 @@
            for line = (read fd nil 'eof)
            while (not (eq line 'eof))
            collect line
-           finally (close fd)
-           ))))
+           finally (close fd)))))
+
+(defun propper-list-p (l)
+  (or (null l)
+	  (and (consp l)
+		   (propper-list-p (cdr l)))))
 
 (defun m-macroexpand-1 (macro)
   ())
@@ -125,4 +129,5 @@
     ((characterp data)
      data)
     (t
-     (warn "copy-all : Je ne sais pas copier ~w" data))))
+     (warn "copy-all : Je ne sais pas copier ~w" data)
+     data)))

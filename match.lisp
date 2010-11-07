@@ -335,10 +335,10 @@
               (is-predicate
                (when (and (pattern-match `(nil nil ,(car pattern) nil nil) expr)
                           (cond
-                            ;; (? and symbole-1 ... symbole-n)
+                            ;; (? _ and symbole-1 ... symbole-n)
                             ((eq 'and (second pattern))
                              (every (lambda (predicat) (funcall predicat expr)) (cddr pattern)))
-                            ;; (? or symbole-1 ... symbole-n)
+                            ;; (? _ or symbole-1 ... symbole-n)
                             ((eq 'or (second pattern))
                              (some (lambda (predicat) (funcall predicat expr)) (cddr pattern)))))
                  (acons-capture capture-name expr nil)))
@@ -1285,4 +1285,3 @@
 (deftest (match defmatch)
     (test-match-bar 42)
   'i-m-else)
-
