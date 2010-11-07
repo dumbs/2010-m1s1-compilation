@@ -77,8 +77,11 @@
               nil))))))
 
 (defmacro deftestvar (module name value)
-  `(test-add-variable ',module
-                      (list ',name (list 'copy-tree ',value))))
+  (if (arrayp value)
+      `(test-add-variable ',module
+                          (list ',name (list 'copy-seq ',value)))
+    `(test-add-variable ',module
+                        (list ',name (list 'copy-tree ',value)))))
 
 (defvar run-tests-counter 0)
 

@@ -95,7 +95,7 @@ par le compilateur et par l’interpréteur"
     (if (member '&rest (second expr))
       `(:lclosure . (,(get-nb-params (second expr))
                            ,(+ 1 (mposition '&rest (second expr)))
-                           ,(lisp2li (implicit-progn (cddr expr))
+                           ,@(lisp2li (implicit-progn (cddr expr))
                                     (make-stat-env (second expr) env))))
       `(:lclosure . ,(cons (get-nb-params (second expr))
                            (lisp2li (implicit-progn (cddr expr))
@@ -266,9 +266,9 @@ par le compilateur et par l’interpréteur"
 
 (deftest (lisp2li rest)
   (lisp2li `(lambda (x &rest y) (cons x y)) ())
-  '(:lclosure 2 2 (:call cons
+  '(:lclosure 2 2 :call cons
               (:cvar 0 1)
-              (:cvar 0 2))))
+              (:cvar 0 2)))
 
 (deftest (lisp2li unknown)
   (lisp2li '(bar 3) ())
