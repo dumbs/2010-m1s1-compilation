@@ -85,7 +85,7 @@ retourne la valeur retournée par la dernière"
 
 (defun meval-args (list-expr env)
   "Évalue en séquence la liste des expressions et
- retourne la liste de leurs valeurs"
+retourne la liste de leurs valeurs"
   (if (endp list-expr)
       nil
     (if (endp (cdr list-expr))
@@ -94,6 +94,8 @@ retourne la valeur retournée par la dernière"
         ,@(meval-args (cdr list-expr) env)))))
 
 (defun meval-lambda (lclosure args env)
+  "Applique une λ-fonction quelconque à des valeurs
+d’arguments dans un certain environnement."
   (match (:nil :lclosure :size (? integerp) :rest (? integerp)? :body _*) lclosure
          (meval lclosure
                 (make-env size args env rest))))
@@ -119,52 +121,16 @@ retourne la valeur retournée par la dernière"
         ((eq ':mcall (first expr))
          (match (:nil :mcall :lambda (:nil :lclosure (? integerp) (? integerp)? _*) :args _*) expr
                 (meval-lambda lambda (meval-args args env) env)))
-
-
-
-        
-;;                 (meval-body `(,body)
-;;                             (make-env size
-;;                                       (meval-args args env)
-;;                                       env
-;;                                       rest))))
-        
-;;         ((match :mcall (first expr))
-;;          (format *debug* "~&(meval :mcall)  ~&~T=> expr = ~a ~&~T=> env = ~a" expr env)
-;;          (if (consp (second expr))
-;;              (let ((closure (second expr)))
-;;                (format *debug* "~&~T=> closure = ~a" closure)
-;;                (cond ((and (atom (third closure))
-;;                            (constantp (third closure))
-;;                            (integerp (third closure)))
-;;                       (meval-body closure
-;;                              (make-rest (make-env (length (cddr expr))
-;;                                                   (map-meval (cddr expr) env)
-;;                                                   env)
-;;                                         (caddr closure))))
-;;                      (T
-;;                       (cond ((< (second closure) (length (cddr expr)))
-;;                              (error "Too arguments"))
-;;                             ((> (second closure) (length (cddr expr)))
-;;                              (error "Too few arguments"))
-;;                             (T
-;;                              (meval closure
-;;                                     (make-env (second closure)
-;;                                               (map-meval (cddr expr)env)
-;;                                               env)))))))
-;;            (error "form not yet implemented")))
-        ((match (:progn) (first expr))
-         (format *debug* "~&(meval :progn) ~&~T=> expr = ~a ~&~T=> env = ~a" expr env)
-         (meval-progn (cdr expr) env))
+        ((eq ':progn (first expr))
+         (match (:nil :progn :body @.+) expr
+                (meval-body body env)))
         ((eq ':lclosure (first expr))
-         (if (and (atom (caddr expr))
-                  (constantp (caddr expr))
-                  (integerp (caddr expr)))
-             (meval-progn `(,(cdddr expr)) env)
-           (meval-progn `(,(cddr expr)) env)))
+         (match (:nil :lclosure (? integerp) (? integerp)? :body _*) expr
+                (meval-body `(,body) env)))
         (T
          (error "form special ~S not yet implemented" (car expr)))))
 
+        
 ;; Test unitaire
 (load "test-unitaire")
 (load "lisp2li")
