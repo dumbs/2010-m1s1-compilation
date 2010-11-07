@@ -140,7 +140,8 @@ par le compilateur et par l’interpréteur"
    ((eq 'setf (car expr))
     (if (symbolp (cadr expr))
         (let ((cell (assoc (cadr expr) env)))
-          `(:set-var (,(second cell) ,(third cell)) ,(third expr)))
+          `(:set-var (,(second cell) ,(third cell))
+                     ,(lisp2li (third expr) env)))
       `(:set-fun ,(caadr expr) ,@(last expr) ,@(cdadr expr))))
    ;; progn
    ((eq 'progn (car expr))
