@@ -1,4 +1,3 @@
-
 ;; Fonctions utiles
 ;; Liste de quelques fonctions pratiques de LISP :
 ;; (rplacd x val) = (setf (cdr x) val)
@@ -42,8 +41,8 @@
 
 (defun range (a &optional b)
   (cond ((null b) (range 0 a))
-        ((> a b) (loop for i from a above (- b 1) collect i))
-        (T (loop for i from a to b collect i))))
+        ((> a b) (loop for i from a above b collect i))
+        (T (loop for i from a below b collect i))))
 
 (defun shift (n l)
   (if (<= n 0)
@@ -99,3 +98,31 @@
           (T
            (mposition-t symb (cdr list) (+ 1 counter)))))
   (mposition-t symb list 0))
+
+;; TODO : ne copie pas les listes de propriétés des symboles.
+;; Vu que ce n'est techniquement pas réalisable, il faut en tenir
+;; compte dans les tests unitaires etc.
+(defun copy-all (data)
+  "Copie récursivement un arbre de listes et de tableaux."
+  (print data)
+  (cond 
+    ((consp data)
+     (cons (copy-all (car data))
+           (copy-all (cdr data))))
+    ((arrayp data)
+     (let ((res (make-array (array-dimensions data))))
+       (dotimes (i (array-total-size data)) 
+         (setf (row-major-aref res i) (copy-all (row-major-aref data i))))
+       res))
+    ((stringp data)
+     (copy-seq data))
+    ((null data)
+     nil)
+    ((symbolp data)
+     data)
+    ((numberp data)
+     data)
+    ((characterp data)
+     data)
+    (t
+     (warn "copy-all : Je ne sais pas copier ~w" data))))

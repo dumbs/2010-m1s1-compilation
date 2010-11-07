@@ -86,11 +86,8 @@
      ,expected))
 
 (defmacro deftestvar (module name value)
-  (if (arrayp value)
-      `(test-add-variable ',module
-                          (list ',name (list 'copy-seq ',value)))
-    `(test-add-variable ',module
-                        (list ',name (list 'copy-tree ',value)))))
+  `(test-add-variable ',module
+                      (list ',name (list 'copy-all ',value))))
 
 (defvar run-tests-counter 0)
 
@@ -132,6 +129,23 @@
 (defmacro erase-tests (&optional module)
   (unless (listp module) (setq module (list module)))
   `(test-remove-module ',module))
+
+(erase-tests test-unitaire)
+(deftest (test-unitaire copy-all)
+    (let ((foo #(a b (1 #(2 4 6) 3) c))
+          (copy-of-foo (copy-all foo)))
+      copy-of-foo
+      (setf (aref (cadr (aref copy-of-foo 2)) 1) (cons 'MODIFIED (random 42)))
+      (equalp foo #(a b (1 #(2 4 6) 3) c)))
+  t #'booleq)
+
+(deftest (test-unitaire copy-all)
+    (let ((foo #(a x (1 #(2 4 7) 5) c))
+          (copy-of-foo (copy-all foo)))
+      copy-of-foo
+      (setf (aref (cadr (aref foo 2)) 1) (cons 'MODIFIED (random 42)))
+      (equalp foo #(a x (1 #(2 4 7) 5) c)))
+  nil #'booleq)
 
 ;;; Exemples d'utilisation.
 
