@@ -76,9 +76,18 @@
               (format t "~&              comparison : ~w~&" _compare)
               nil))))))
 
+(defvar b '(x x))
+(defmacro generates-error-p (code)
+  `(car (handler-case (progn (push 'a b) (cons nil ,code))
+          (error (e) (cons t e)))))
+
+(defmacro deftest-error (module test &optional (expected t))
+  `(deftest ,module (generates-error-p ,test)
+     ,expected))
+
 (defmacro deftestvar (module name value)
   `(test-add-variable ',module
-                      (list ',name (list 'copy-tree ',value))))
+                      (list ',name (list 'copy-all ',value))))
 
 (defvar run-tests-counter 0)
 
@@ -121,6 +130,23 @@
   (unless (listp module) (setq module (list module)))
   `(test-remove-module ',module))
 
+(erase-tests test-unitaire)
+(deftest (test-unitaire copy-all)
+    (let* ((foo #(a b (1 #(2 4 6) 3) c))
+           (copy-of-foo (copy-all foo)))
+      copy-of-foo
+      (setf (aref (cadr (aref copy-of-foo 2)) 1) (cons 'MODIFIED (random 42)))
+      (equalp foo #(a b (1 #(2 4 6) 3) c)))
+  t #'booleq)
+
+(deftest (test-unitaire copy-all)
+    (let* ((foo #(a x (1 #(2 4 7) 5) c))
+           (copy-of-foo (copy-all foo)))
+      copy-of-foo
+      (setf (aref (cadr (aref foo 2)) 1) (cons 'MODIFIED (random 42)))
+      (equalp foo #(a x (1 #(2 4 7) 5) c)))
+  nil #'booleq)
+
 ;;; Exemples d'utilisation.
 
 ;; (erase-tests (a sub-1))
@@ -137,7 +163,9 @@
 ;; (deftest (a sub-2) (eq 'x 'x) t)
 ;; (deftest (b sub-1) (eq 'y 'y) t)
 ;; (deftest c (eq 'foo 'foo) t)
+;; (deftest-error c (if (eq 42 42) (error "foo") (error "bar")))
 
+;; Pour lancer les tests :
 ;; (run-tests (a sub-1) b t)
 ;; (run-tests ())
 ;; (run-tests t)

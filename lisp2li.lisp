@@ -11,33 +11,31 @@
 (defun map-lisp2li (expr env)
   (mapcar (lambda (x) (lisp2li x env)) expr))
 
-(defun m-macroexpand-1 (macro)
-  ())
+(defun make-stat-env-optional (params env position num-env)
+  (cond ((endp params)
+         env)
+        ((consp (car params))
+         `((,(caar params) ,num-env ,position)
+           (,(intern (format nil "~a-P" (caar params))) ,num-env ,(+ 1 position))
+           . ,(make-stat-env-optional (cdr params) env (+ 2 position) num-env)))
+        ((eq '&rest (car params))
+         (make-stat-env (cdr params) env position num-env))
+        (T
+         `((,(car params) ,num-env ,position)
+           . ,(make-stat-env-optional (cdr params) env (+ 1 position) num-env)))))
+  
+(defun make-stat-env (params &optional env (position 1) num-env)
+  (unless num-env (setq num-env (+ (or (second (first env)) -1) 1)))
+  (cond ((endp params)
+         env)
+        ((eq '&optional (car params))
+         (make-stat-env-optional (cdr params) env position num-env))
+        ((eq '&rest (car params))
+         (make-stat-env (cdr params) env position num-env))
+        (T
+         `((,(car params) ,num-env ,position)
+           . ,(make-stat-env (cdr params) env (+ 1 position))))))
 
-(defmacro get-defun (symb)
-  `(get ,symb :defun))
-
-(defun set-defun (li)
-  (setf (get-defun (cdaddr li))
-        (cdddr li)))
-
-(defmacro get-defmacro (symb)
-  `(get ,symb :defmacro))
-
-(defun set-defmacro (li)
-  (setf (get-defmacro (cdaddr li))
-        (cdddr li)))
-
-(defun make-stat-env (params &optional env)
-   (append
-    (loop
-     for var in (remove '&optional (remove '&rest params))
-     for num-env = (+ (or (second (first env)) -1) 1)
-     for position = 1 then (+ position 1)
-     unless (member var '(&optional &rest))
-     collect (list var num-env position))
-    env))
-     
 (defun transform-quasiquote (expr)
   (cond
    ;; a
@@ -61,7 +59,24 @@
    (T
     `(cons ,(transform-quasiquote (car expr))
 	   ,(transform-quasiquote (cdr expr))))))
-   
+
+(defun get-nb-params (params)
+  "Renvoie le nombre exact de paramètres sans les &optional et &rest"
+  (defun get-nb-params-t (params r)
+    (cond ((endp params)
+           r)
+          ((or (eq '&optional (car params))
+               (eq '&rest (car params)))
+           (get-nb-params-t (cdr params) r))
+          (T
+           (get-nb-params-t (cdr params) (+ 1 r)))))
+  (get-nb-params-t params 0))
+
+(defun implicit-progn (expr)
+  (if (n-consp 2 expr)
+      (cons 'progn  expr)
+    (car expr)))
+
 (defun lisp2li (expr env)
   "Convertit le code LISP en un code intermédiaire reconnu
 par le compilateur et par l’interpréteur"
@@ -76,10 +91,15 @@ par le compilateur et par l’interpréteur"
           `(:cvar ,(cadr cell) ,(caddr cell))
         (error "Variable ~S unknown" expr))))
    ;; lambda solitaire ex: (lambda (x) x)
-   ((eq 'lambda (car expr))
-    `(:lclosure . ,(cons (length (second expr))
-                         (lisp2li (third expr)
-                                  (make-stat-env (second expr))))))
+   ((eq 'lambda (car expr)) ;; TODO : ameliorer le cas du lambda
+    (if (member '&rest (second expr))
+      `(:lclosure . (,(get-nb-params (second expr))
+                           ,(+ 1 (mposition '&rest (second expr)))
+                           ,@(lisp2li (implicit-progn (cddr expr))
+                                    (make-stat-env (second expr) env))))
+      `(:lclosure . ,(cons (get-nb-params (second expr))
+                           (lisp2li (implicit-progn (cddr expr))
+                                    (make-stat-env (second expr) env))))))
    ;; lambda ex: ((lambda (x) x) 1)
    ((and (consp (car expr))
          (eq 'lambda (caar expr)))
@@ -125,6 +145,9 @@ par le compilateur et par l’interpréteur"
    ;; progn
    ((eq 'progn (car expr))
     (cons :progn (map-lisp2li (cdr expr) env)))
+   ;; declaim
+   ((eq 'declaim (car expr))
+    (cons :const nil))
    ;; macros
    ((macro-function (car expr))
     (lisp2li (macroexpand expr) env))
@@ -189,8 +212,8 @@ par le compilateur et par l’interpréteur"
   '(:if (:const . T) (:const . T) (:const . nil)))
 
 (deftest (lisp2li defun)
-  (lisp2li '(defun foo (x) x) ())
-  '(:mcall set-defun (:const . foo) (:lclosure 1 :cvar 0 1)))
+  (lisp2li '(defun bar (x) x) ())
+  '(:mcall set-defun (:const . bar) (:lclosure 1 :cvar 0 1)))
 
 (deftest (lisp2li defun)
   (lisp2li '(defun foo (x y z) (list x y z)) ())
@@ -224,9 +247,32 @@ par le compilateur et par l’interpréteur"
                      (:cvar 0 3))
           (:const . 1) (:const . 2) (:const . 3)))
 
+(deftest (lisp2li lambda)
+  (lisp2li `(lambda (x y z) (list x y z)) ())
+  '(:lclosure 3 :call list
+                      (:cvar 0 1)
+                      (:cvar 0 2)
+                      (:cvar 0 3)))
+
+(deftest (lisp2li lambda)
+  (lisp2li `(lambda (x y z) (list x y z) (+ x y)) ())
+  '(:lclosure 3 :progn (:call list
+                               (:cvar 0 1)
+                               (:cvar 0 2)
+                               (:cvar 0 3))
+                        (:call +
+                               (:cvar 0 1)
+                               (:cvar 0 2))))
+
+(deftest (lisp2li rest)
+  (lisp2li `(lambda (x &rest y) (cons x y)) ())
+  '(:lclosure 2 2 :call cons
+              (:cvar 0 1)
+              (:cvar 0 2)))
+
 (deftest (lisp2li unknown)
-  (lisp2li '(foo 3) ())
-  '(:unknown (foo 3) ()))
+  (lisp2li '(bar 3) ())
+  '(:unknown (bar 3) ()))
 
 (deftest (lisp2li function)
   (lisp2li '#'car ())
