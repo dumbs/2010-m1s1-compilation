@@ -76,6 +76,15 @@
               (format t "~&              comparison : ~w~&" _compare)
               nil))))))
 
+(defvar b '(x x))
+(defmacro generates-error-p (code)
+  `(car (handler-case (progn (push 'a b) (cons nil ,code))
+          (error (e) (cons t e)))))
+
+(defmacro deftest-error (module test &optional (expected t))
+  `(deftest ,module (generates-error-p ,test)
+     ,expected))
+
 (defmacro deftestvar (module name value)
   (if (arrayp value)
       `(test-add-variable ',module
@@ -140,7 +149,9 @@
 ;; (deftest (a sub-2) (eq 'x 'x) t)
 ;; (deftest (b sub-1) (eq 'y 'y) t)
 ;; (deftest c (eq 'foo 'foo) t)
+;; (deftest-error c (if (eq 42 42) (error "foo") (error "bar")))
 
+;; Pour lancer les tests :
 ;; (run-tests (a sub-1) b t)
 ;; (run-tests ())
 ;; (run-tests t)
