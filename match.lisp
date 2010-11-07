@@ -40,7 +40,7 @@
                   ((eq (car pred) 'lambda)   pred)
                   (t
                    `(lambda (x) ,pred))))
-          (cdr pattern)))
+          pattern))
 
 (defun pattern-match-do-lambdas-1 (pattern)
   (if (atom pattern)
@@ -48,14 +48,20 @@
       `(list ',(first pattern)
              ',(second pattern)
              ,(if (second pattern)
-                  (let ((?-clause (third pattern)))
-                    (cond ((atom (cdr ?-clause))       `(list 'and #'identity))
-                          ((eq 'and (second ?-clause)) `(list 'and ,@(pattern-match-do-lambdas-transform (cdr ?-clause))))
-                          ((eq 'or  (second ?-clause)) `(list 'or  ,@(pattern-match-do-lambdas-transform (cdr ?-clause))))
-                          (t                           `(list 'and ,@(pattern-match-do-lambdas-transform ?-clause)))))
+                  (let ((?-clause (cdr (third pattern)))
+                        (type '_))
+                    (when (and (consp ?-clause) (member (car ?-clause) '(nil _ $ @ @.)))
+                      (setq type (car ?-clause))
+                      (setq ?-clause (cdr ?-clause)))
+                    (cond ((atom ?-clause)            `(list ',type 'and #'identity))
+                          ((eq 'and (first ?-clause)) `(list ',type 'and ,@(pattern-match-do-lambdas-transform (cdr ?-clause))))
+                          ((eq 'or  (first ?-clause)) `(list ',type 'or  ,@(pattern-match-do-lambdas-transform (cdr ?-clause))))
+                          (t                          `(list ',type 'and ,@(pattern-match-do-lambdas-transform ?-clause)))))
                   (pattern-match-do-lambdas-1 (third pattern)))
              ',(fourth pattern)
              ,(pattern-match-do-lambdas-1 (fifth pattern)))))
+
+(pattern-match-preprocess (? car cdr))
 
 (defmacro pattern-match-do-lambdas (pattern)
   "Transforme les (? (<code>)) et (? (lambda ...)) en vrais lambdas."
@@ -328,13 +334,14 @@
             (cond
               ;; (? <prédicat(s)>)
               (is-predicate
-               (when (cond
-                       ;; (? and symbole-1 ... symbole-n)
-                       ((eq 'and (first pattern))
-                        (every (lambda (predicat) (funcall predicat expr)) (cdr pattern)))
-                       ;; (? or symbole-1 ... symbole-n)
-                       ((eq 'or (first pattern))
-                        (some (lambda (predicat) (funcall predicat expr)) (cdr pattern))))
+               (when (and (pattern-match `(nil nil ,(car pattern) nil nil) expr)
+                          (cond
+                            ;; (? and symbole-1 ... symbole-n)
+                            ((eq 'and (second pattern))
+                             (every (lambda (predicat) (funcall predicat expr)) (cddr pattern)))
+                            ;; (? or symbole-1 ... symbole-n)
+                            ((eq 'or (second pattern))
+                             (some (lambda (predicat) (funcall predicat expr)) (cddr pattern)))))
                  (acons-capture capture-name expr nil)))
               ;; ()
               ((null pattern)
