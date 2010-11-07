@@ -1,7 +1,7 @@
-(setq *debug* nil)
 (load "match")
 
 (defun get-env-num (num env)
+"Récupère l’environnement correspondant à celui souhaité."
   (defun get-env-num-t (num env counter)
     (cond ((= counter num) env)
           ((eq (aref env 0) nil) nil)
@@ -11,6 +11,7 @@
   (get-env-num-t num env 0))
 
 (defun get-lower-env (env)
+  "Récupère l’environnement le plus bas"
   (if (or (= (array-total-size env) 0)
           (eq (aref env 0) nil))
       env
@@ -32,9 +33,10 @@ du &rest dans une cellule de l'env sous forme d'une liste"
   env)
 
 (defun make-env (size list-values env &optional pos-rest)
-  "Construit un nouvel environnement de taille <size> dans <env>
-et remplie ce nouvelle environnement avec les valeurs contenu dans
-<list-values>"
+  "Construis l’environnement en appariant les paramètres aux valeurs
+ correspondantes et signale une exception si paramètres et arguments
+ ne concordent pas. Si l’environnement passe en paramètre n’est pas vide,
+ le nouvel environnement y est inclus."
   (cond ((and (not pos-rest)
               (< size (length list-values)))
          (error "Too arguments"))
@@ -57,13 +59,11 @@ et remplie ce nouvelle environnement avec les valeurs contenu dans
            env)))
 
 (defun map-meval (list env)
-  (format *debug* "~&map-meval ~&~T=> list = ~a ~&~T=> env = ~a" list env)
   (mapcar (lambda (x) (meval x env)) list))
 
 (defun meval-progn (list env)
   "Mevalue toutes les sous expressions et renvoie
 la valeur de la dernier"
-  (format *debug* "~&meval-progn ~&~T=> list = ~a ~&~T env = ~a" list env)
   (if (endp list)
       nil
     (if (endp (cdr list))
@@ -73,6 +73,8 @@ la valeur de la dernier"
         (meval-progn (cdr list) env)))))
 
 (defun meval-body (list-expr env)
+  "Évalue en séquence la liste des expressions et
+retourne la valeur retournée par la dernière"
   (if (endp list-expr)
       nil
     (if (endp (cdr list-expr))
@@ -82,13 +84,20 @@ la valeur de la dernier"
         (meval-body (cdr list-expr) env)))))
 
 (defun meval-args (list-expr env)
+  "Évalue en séquence la liste des expressions et
+ retourne la liste de leurs valeurs"
   (if (endp list-expr)
       nil
     (if (endp (cdr list-expr))
         `(,(meval (car list-expr) env))
       `(,(meval (car list-expr) env)
         ,@(meval-args (cdr list-expr) env)))))
-  
+
+(defun meval-lambda (lclosure args env)
+  (match (:nil :lclosure :size (? integerp) :rest (? integerp)? :body _*) lclosure
+         (meval lclosure
+                (make-env size args env rest))))
+
 (defun meval (expr &optional (env #()))
   "Interprète le langage intermédiaire passé en paramètre."
   (cond ((eq ':const (first expr))
@@ -108,12 +117,17 @@ la valeur de la dernier"
          (match (:nil :call :func-name _ :body _*) expr
                 (apply (symbol-function func-name) (map-meval body env))))
         ((eq ':mcall (first expr))
-         (match (:nil :mcall (:nil :lclosure :size (? integerp) :rest (? integerp)? :body _*) :args _*) expr
-                (meval-body `(,body)
-                            (make-env size
-                                      (meval-args args env)
-                                      env
-                                      rest))))
+         (match (:nil :mcall :lambda (:nil :lclosure (? integerp) (? integerp)? _*) :args _*) expr
+                (meval-lambda lambda (meval-args args env) env)))
+
+
+
+        
+;;                 (meval-body `(,body)
+;;                             (make-env size
+;;                                       (meval-args args env)
+;;                                       env
+;;                                       rest))))
         
 ;;         ((match :mcall (first expr))
 ;;          (format *debug* "~&(meval :mcall)  ~&~T=> expr = ~a ~&~T=> env = ~a" expr env)
@@ -142,12 +156,11 @@ la valeur de la dernier"
         ((match (:progn) (first expr))
          (format *debug* "~&(meval :progn) ~&~T=> expr = ~a ~&~T=> env = ~a" expr env)
          (meval-progn (cdr expr) env))
-        ((match (:lclosure) (first expr))
-         (format *debug* "~&(meval :lclosure) ~&~T=>  expr = ~a~&~T=>  env = ~a" expr env)
+        ((eq ':lclosure (first expr))
          (if (and (atom (caddr expr))
                   (constantp (caddr expr))
                   (integerp (caddr expr)))
-             (meval-progn (cdddr expr) env)
+             (meval-progn `(,(cdddr expr)) env)
            (meval-progn `(,(cddr expr)) env)))
         (T
          (error "form special ~S not yet implemented" (car expr)))))
@@ -250,6 +263,13 @@ la valeur de la dernier"
   (meval-args '((:cvar 0 1) (:call cons (:cvar 0 3)
                                   (:cvar 0 2))) #(() 1 2 3))
   '(1 (3 . 2)))
+
+(deftest (meval meval-lambda)
+  (meval-lambda '(:lclosure 2 :call cons
+                            (:cvar 0 1)
+                            (:cvar 0 2))
+                '(1 2) #())
+  '(1 . 2))
 
 (deftest (meval :mcall :lclosure)
   (meval (lisp2li '((lambda (x y) (cons x y)) 1 2) ()))
