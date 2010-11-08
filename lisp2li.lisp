@@ -329,3 +329,34 @@ par le compilateur et par l’interpréteur"
                (:call eq (:call car (:const 1 2)) (:const . 1)))
         (:const . nil)
         (:const . T)))
+
+(deftest (lisp2li let)
+  (lisp2li '(let ((x 1) (y 2))
+              (cons x y)) ())
+  '(:let 2 (:set-var (0 1) (:const . 1))
+         (:set-var (0 2) (:const . 2))
+         (:call cons (:cvar 0 1) (:cvar 0 2))))
+
+(deftest (lisp2li let)
+  (lisp2li '(let ((x 1) (y 2))
+              (cons x y)
+              (list x y)) ())
+  '(:let 2 (:set-var (0 1) (:const . 1))
+         (:set-var (0 2) (:const . 2))
+         (:progn
+          (:call cons (:cvar 0 1) (:cvar 0 2))
+          (:call list (:cvar 0 1) (:cvar 0 2)))))
+
+(deftest (lisp2li let)
+  (lisp2li '(let ((x z) (y 2))
+              (cons x y)) '((z 0 1)))
+  '(:let 2 (:set-var (1 1) (:cvar 0 1))
+         (:set-var (1 2) (:const . 2))
+         (:call cons (:cvar 1 1) (:cvar 1 2))))
+
+(deftest (lisp2li let)
+  (lisp2li '(let ((x 2))
+              (cons x z)) '((z 0 1)))
+  '(:let 1 (:set-var (1 1) (:const . 2))
+         (:call cons (:cvar 1 1) (:cvar 0 1))))
+         

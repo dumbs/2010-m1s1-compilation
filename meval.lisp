@@ -61,17 +61,6 @@ du &rest dans une cellule de l'env sous forme d'une liste"
 (defun map-meval (list env)
   (mapcar (lambda (x) (meval x env)) list))
 
-(defun meval-progn (list env)
-  "Mevalue toutes les sous expressions et renvoie
-la valeur de la dernier"
-  (if (endp list)
-      nil
-    (if (endp (cdr list))
-        (meval (car list) env)
-      (progn
-        (meval (car list) env)
-        (meval-progn (cdr list) env)))))
-
 (defun meval-body (list-expr env)
   "Évalue en séquence la liste des expressions et
 retourne la valeur retournée par la dernière"
@@ -135,6 +124,8 @@ d’arguments dans un certain environnement."
                (meval-body `(,body) env))
               ((:nil :set-var :place @. :value _)
                (msetf place value env))
+              ((:nil :let :size (? integerp) :affectations (:nil :set-var :places @ :values _)* :body _*)
+               (meval-body body (make-env size (meval-args values env) env)))
               (_*
                (error "form special ~S not yet implemented" expr))))
 
