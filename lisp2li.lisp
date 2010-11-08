@@ -44,7 +44,7 @@
     `(cons ,(transform-quasiquote (car expr))
 	   ,(transform-quasiquote (cdr expr))))))
 
-(defun lisp2li (expr env-var env-fun)
+(defun lisp2li (expr &optional env-var env-fun)
   "Convertit le code LISP en un code intermédiaire reconnu
 par le compilateur et par l’interpréteur"
   (cond ((null env-var) (lisp2li expr (empty-env-stack) env-fun))
@@ -127,6 +127,15 @@ par le compilateur et par l’interpréteur"
                       `(let (,(car bindings))
                          (let* ,(cdr bindings)
                            ,body))) env-var env-fun)))
+	;; labels
+	((eq 'labels (car expr))
+	 (let ((bindings (cadr expr))
+	       (body (caddr expr))
+	       (env-bis (push-new-env env-fun "LABELS")))
+	   (mapcar (lambda (x) (add-binding env-bis (car x) 
+					    (lisp2li `(lambda ,(cadr x) ,(cddr x)) env-var env-bis)))
+		   bindings)
+	   `(:lclosure (,env-var ,env-bis) ,(lisp2li body env-var env-bis))))
 	;; progn
 	((eq 'progn (car expr))
 	 (cons :progn (map-lisp2li (cdr expr) env-var env-fun)))
