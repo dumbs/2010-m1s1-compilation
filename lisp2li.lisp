@@ -132,7 +132,7 @@ par le compilateur et par l’interpréteur"
     `(:sclosure ,(cadr expr)))
    ;; defun
    ((eq 'defun (car expr))
-    `(:mcall set-defun (:const . ,(second expr))
+    `(:call set-defun (:const . ,(second expr))
                 ,(lisp2li `(lambda ,(third expr) ,@(cdddr expr)) env)))
    ;; apply
    ((eq 'apply (car expr))
@@ -215,11 +215,11 @@ par le compilateur et par l’interpréteur"
 
 (deftest (lisp2li defun)
   (lisp2li '(defun bar (x) x) ())
-  '(:mcall set-defun (:const . bar) (:lclosure 1 :cvar 0 1)))
+  '(:call set-defun (:const . bar) (:lclosure 1 :cvar 0 1)))
 
 (deftest (lisp2li defun)
   (lisp2li '(defun foo (x y z) (list x y z)) ())
-  '(:mcall set-defun (:const . foo)
+  '(:call set-defun (:const . foo)
            (:lclosure 3 :call list
                       (:cvar 0 1)
                       (:cvar 0 2)
@@ -227,11 +227,11 @@ par le compilateur et par l’interpréteur"
 
 (deftest (lisp2li setf)
   (lisp2li '(setf y 42) '((x 0 1) (y 0 2)))
-  '(:set-var (0 2) 42))
+  '(:set-var (0 2) (:const . 42)))
 
 (deftest (lisp2li setf)
   (lisp2li '(setf (cdr '(1 2 3)) 42) ())
-  '(:set-fun cdr 42 '(1 2 3)))
+  '(:set-fun cdr 42  '(1 2 3)))
 
 (deftest (lisp2li lambda)
   (lisp2li '(mapcar (lambda (x y z) (list x y z)) '(1 2 3)) ())
