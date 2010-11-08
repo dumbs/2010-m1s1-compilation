@@ -1,41 +1,261 @@
-(defun meval (expr env)
-  "Interprète le langage intermédiaire passé en paramètre."
-  (cond ((eq ':lit (first expr))
-         (cdr expr))
-        ((eq ':var (first expr))
-         (let ((cell (get-binding env (cdr expr))))
-           (if cell
-                (cdr cell)
-               (error "The variable ~S is unbound" (cdr expr)))))
-        ((eq ':if (car expr))
-         (if (meval (second expr) env)
-             (meval (third expr) env)
-           (meval (fourth expr) env)))
-        ((eq ':call (first expr))
-         (apply (second expr) (map-meval (cddr expr) env)))
-        ))
+(load "match")
+
+(defun get-env-num (num env)
+"Récupère l’environnement correspondant à celui souhaité."
+  (defun get-env-num-t (num env counter)
+    (cond ((= counter num) env)
+          ((eq (aref env 0) nil) nil)
+          (T
+           (get-env-num-t num (aref env 0) (+ 1 counter))
+           )))
+  (get-env-num-t num env 0))
+
+(defun get-lower-env (env)
+  "Récupère l’environnement le plus bas"
+  (if (or (= (array-total-size env) 0)
+          (eq (aref env 0) nil))
+      env
+     (get-lower-env (aref env 0))))
+
+(defun make-rest (env values &optional (pos-rest 1))
+  "Construit l'environnement en rajoutant tous les valeurs
+du &rest dans une cellule de l'env sous forme d'une liste"
+  (let ((size (- (array-total-size env) 1)))
+    (defun make-rest-lower-env (lower-env pos values)
+      (cond ((= pos pos-rest)
+             (setf (aref lower-env pos) values))
+            (T
+             (setf (aref lower-env pos) (car values))
+             (make-rest-lower-env lower-env
+                                  (+ pos 1)
+                                  (cdr values)))))
+    (make-rest-lower-env env 1 values))
+  env)
+
+(defun make-env (size list-values env &optional pos-rest)
+  "Construis l’environnement en appariant les paramètres aux valeurs
+ correspondantes et signale une exception si paramètres et arguments
+ ne concordent pas. Si l’environnement passe en paramètre n’est pas vide,
+ le nouvel environnement y est inclus."
+  (cond ((and (not pos-rest)
+              (< size (length list-values)))
+         (error "Too arguments"))
+        ((> size (length list-values))
+         (error "Too few arguments"))
+        (T
+         (if (= (array-total-size env) 0)
+             (setf env (make-array (+ 1 size)))
+           (setf (aref (get-lower-env env) 0) (make-array (+ 1 size))))
+           (let ((lower-env (get-lower-env env)))
+             (if pos-rest
+                 (make-rest lower-env
+                            list-values
+                            pos-rest)
+               (loop
+                for value in list-values
+                for rank = 1 then (+ rank 1)
+                do (setf (aref lower-env rank) value)
+                )))
+           env)))
 
 (defun map-meval (list env)
   (mapcar (lambda (x) (meval x env)) list))
 
-(defun foo (x) x)
+(defun meval-progn (list env)
+  "Mevalue toutes les sous expressions et renvoie
+la valeur de la dernier"
+  (if (endp list)
+      nil
+    (if (endp (cdr list))
+        (meval (car list) env)
+      (progn
+        (meval (car list) env)
+        (meval-progn (cdr list) env)))))
 
+(defun meval-body (list-expr env)
+  "Évalue en séquence la liste des expressions et
+retourne la valeur retournée par la dernière"
+  (if (endp list-expr)
+      nil
+    (if (endp (cdr list-expr))
+        (meval (car list-expr) env)
+      (progn
+        (meval (car list-expr) env)
+        (meval-body (cdr list-expr) env)))))
+
+(defun meval-args (list-expr env)
+  "Évalue en séquence la liste des expressions et
+retourne la liste de leurs valeurs"
+  (if (endp list-expr)
+      nil
+    (if (endp (cdr list-expr))
+        `(,(meval (car list-expr) env))
+      `(,(meval (car list-expr) env)
+        ,@(meval-args (cdr list-expr) env)))))
+
+(defun meval-lambda (lclosure args env)
+  "Applique une λ-fonction quelconque à des valeurs
+d’arguments dans un certain environnement."
+  (match (:nil :lclosure :size (? integerp) :rest (? integerp)? :body _*) lclosure
+         (meval lclosure
+                (make-env size args env rest))))
+
+(defun msetf (place val env)
+  (let ((sub-env (get-env-num (first place) env)))
+    (if sub-env
+        (setf (aref sub-env (second place))
+              (meval val env)))))
+
+(defun make-closure (lmbd env)
+  `(,lmbd . ,env))
+
+(defun meval-closure (clos args)
+  (meval-lambda (cadr clos) args (cddr clos)))
+
+(defun meval (expr &optional (env #()))
+  "Interprète le langage intermédiaire passé en paramètre."
+  (cond-match expr
+              ((:nil :const :val . _) expr val)
+              ((:nil :cvar :num-env (? integerp) :index (? integerp))
+                (let ((sub-env (get-env-num num-env env)))
+                (if sub-env
+                    (aref sub-env index)
+                  (error "The variable unbound" expr))))
+              ((:nil :if :predicat @. :expr1 @. :expr2 @.)
+                (if (meval predicat env)
+                    (meval expr1 env)
+                  (meval expr2 env)))
+              ((:nil :call :func-name _ :body _*)
+               (apply (symbol-function func-name) (map-meval body env)))
+              ((:nil :mcall :lambda (:nil :lclosure (? integerp) (? integerp)? _*) :args _*)
+               (meval-lambda lambda (meval-args args env) env))
+              (match (:nil :progn :body @.+)
+                     (meval-body body env))
+              ((:nil :lclosure (? integerp) (? integerp)? :body _*)
+                (meval-body `(,body) env))
+              ((:nil :set-var :place @. :value _)
+               (msetf place value env))
+              (_*
+               (error "form special ~S not yet implemented" expr))))
+
+        
 ;; Test unitaire
 (load "test-unitaire")
+(load "lisp2li")
 (erase-tests meval)
-(deftest meval
-  (meval '(:lit . 3) ())
+(deftest (meval :const)
+  (meval (lisp2li 3 ()))
   3)
 
-(deftest meval
-  (meval '(:var . x) '(("TEST" (s . ()) (z . 4) (x . 5) (u . 6))))
+(deftest (meval quote)
+  (meval (lisp2li '3 ()))
+  3)
+
+(deftest (meval quote)
+  (meval (lisp2li ''3 ()))
+  3)
+
+(deftest (meval quote)
+  (meval (lisp2li '''3 ()))
+  ''3)
+
+(deftest (meval :cvar)
+  (meval (lisp2li 'x '((x 0 2))) #(() 4 5 6))
   5)
 
-(deftest meval
-  (meval '(:var . s2) '(("TEST" (s . ()) (s1 . 7) (s2 . 8))
-                       ("TOP-LEVEL" (x . 4) (x1 . 5) (x2 . 6))))
+(deftest (meval :cvar)
+  (meval '(:cvar 1 2) #(#(() 7 8) 4 5 6)) 
   8)
 
-(deftest meval
-  (meval '(:call + (:lit . 3) (:var . x)) '(("TOP-LEVEL" (x1 . 4) (x . 5) (z . 6))))
-  8)
+(deftest (meval :call)
+  (meval '(:call + (:const . 3) (:cvar 0 1)) #(() 4 5 6))
+  7)
+
+(deftest (meval :call)
+  (meval '(:call list (:const . 3) (:const . 2)))
+  '(3 2))
+
+(deftest (meval :if)
+  (meval '(:if (:const . T)
+               (:const . T)
+               (:const . nil)))
+  T)
+
+(deftest (meval :if)
+  (meval '(:if (:call eq (:const . 1)
+                      (:cvar 0 1))
+               (:const . T)
+               (:const . nil)) #(() 1 2 3))
+  T)
+
+(deftestvar (meval make-env) empty-env #())
+(deftest (meval make-env)
+  (make-env 2 '(1 2) empty-env)
+  #(() 1 2)
+  #'equalp)
+
+(deftestvar (meval make-env) env #(() 1 2))
+(deftest (meval make-env)
+  (make-env 2 '(7 8) env)
+  #(#(() 7 8) 1 2)
+  #'equalp)
+
+(deftestvar (meval make-env make-rest) env #(() nil nil))
+(deftest (meval make-env make-rest)
+  (make-rest env '(1 2 3 4) 2)
+  #(() 1 (2 3 4))
+  #'equalp)
+
+(deftestvar (meval make-env &rest) env #(() 1 2))
+(deftest (meval make-env &rest)
+  (make-env 2 '(7 8 9) env 2)
+  #(#(() 7 (8 9)) 1 2)
+  #'equalp)
+
+(deftest (meval make-env &rest)
+  (make-env 1 '(nil) env 1)
+  #(#(() (nil)) 1 2)
+  #'equalp)
+
+(deftest (meval meval-body)
+  (meval-body '((:const . 3)) #())
+  '3)
+
+(deftest (meval meval-body)
+  (meval-body '((:const . 3) (:call cons (:const . 1) (:const . 2))) #())
+  '(1 . 2))
+
+(deftest (meval meval-args)
+  (meval-args '((:const . 3)) #())
+  '(3))
+
+(deftest (meval meval-args)
+  (meval-args '((:const . 3) (:const 1 2 3)) #())
+  '(3 (1 2 3)))
+
+(deftest (meval meval-args)
+  (meval-args '((:cvar 0 1) (:call cons (:cvar 0 3)
+                                  (:cvar 0 2))) #(() 1 2 3))
+  '(1 (3 . 2)))
+
+(deftest (meval meval-lambda)
+  (meval-lambda '(:lclosure 2 :call cons
+                            (:cvar 0 1)
+                            (:cvar 0 2))
+                '(1 2) #())
+  '(1 . 2))
+
+(deftest (meval :mcall :lclosure)
+  (meval (lisp2li '((lambda (x y) (cons x y)) 1 2) ()))
+  '(1 . 2))
+
+(deftest (meval :mcall :lclosure)
+  (meval (lisp2li '((lambda (x &rest y) (cons x y)) 1 2 3 4) ()))
+  '(1 2 3 4))
+
+(deftestvar (meval :set-var) env #(() 2))
+(deftest (meval :set-var)
+  (progn
+    (meval (lisp2li '(setf x 42) ()) env)
+    env)
+  #(() 42))

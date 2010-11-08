@@ -63,14 +63,15 @@
 
 (defun position1 (x l) (+ 1 (position x l)))
 
-(defun split-bytes (n nb-bytes append)
-  "Découpe N en plusieurs valeurs inférieures à 256,
-en renvoyant une liste de longueur NB-BYTES,
-et termine par la liste APPEND."
-  (if (<= nb-bytes 0)
-      append
-      (cons (ldb (byte 8 (* 8 (- nb-bytes 1))) n)
-            (split-bytes n (- nb-bytes 1) append))))
+;; TODO : faire une fonction (append-bits n1 size2 n2 size3 n3 ... sizen nn)
+
+(defun append-bits (&optional (n1 0) &rest rest)
+  (if (endp rest)
+      n1
+      (apply #'append-bits
+             (logior (ash n1 (car rest))
+                     (cadr rest))
+             (cddr rest))))
 
 (defvar nb-operateurs (length table-operateurs))
 (defvar nb-modes-adressage (length table-modes-adressage))
@@ -88,25 +89,21 @@ et termine par la liste APPEND."
 ;; '(operateur mode-adressage-1 valeur-1 mode-adressage-2 valeur-2)
 ;; Si l'instruction ne prend qu'un (ou zéro) paramètre, les champs
 ;; correspondants sont mis à nil.
-;; TODO : encoder en entier les registres de valeur-1 et valeur-2.
+
 (defun isn-encode (instruction)
-  (let ((operateur (first instruction))
-        (mode-adressage-1 (second instruction))
-        (valeur-1 (third instruction))
-        (mode-adressage-2 (fourth instruction))
-        (valeur-2 (fifth instruction)))
-    (let* ((opcode (position1 operateur table-operateurs))
-           (opcode (ash opcode nb-modes-adressage))
-           (opcode (logior opcode (position1 mode-adressage-1 table-modes-adressage)))
-           (opcode (ash opcode nb-modes-adressage))
-           (opcode (logior opcode (position1 mode-adressage-2 table-modes-adressage))))
-      (split-bytes opcode nb-opcode-bytes
-                   (list (if (eq mode-adressage-1 'registre)
-							 (position1 valeur1 (get-register-list (make-vm 1)))
-						   valeur1)
-						 (if (eq mode-adressage-2 'registre)
-							 (position1 valeur2 (get-register-list (make-vm 1)))
-						   valeur2))))))
+  (loop
+     for (operateur mode-adressage-1 valeur-1 mode-adressage-2 valeur-2) = instruction
+     return (list (append-bits (position1 operateur table-operateurs)
+                               nb-modes-adressage
+                               (position1 mode-adressage-1 table-modes-adressage) 
+                               nb-modes-adressage
+                               (position1 mode-adressage-2 table-modes-adressage))
+                  (if (eq mode-adressage-1 'registre)
+                      (position1 valeur-1 (get-register-list (make-vm 1)))
+                      valeur-1)
+                  (if (eq mode-adressage-2 'registre)
+                      (position1 valeur-2 (get-register-list (make-vm 1)))
+                      valeur-2))))
 
 ;;TODO : Faire les registres
 (defun dump-vm (vm)
