@@ -130,6 +130,18 @@ par le compilateur et par l’interpréteur"
    ;; #'fn (FUNCTION fn)
    ((eq 'function (car expr))
     `(:sclosure ,(cadr expr)))
+   ;; let
+   ((eq 'let (car expr))
+    (match (let :bindings ((:names $ :values _)*) :body _*) expr
+           (let ((new-env (make-stat-env names env)))
+             `(:let ,(length bindings)
+                    ,@(mapcar
+                       (lambda (name value)
+                         (let ((cell (assoc name new-env)))
+                           `(:set-var (,(second cell) ,(third cell))
+                                      ,(lisp2li value env))))
+                       names values)
+                    ,(lisp2li (implicit-progn body) new-env)))))
    ;; defun
    ((eq 'defun (car expr))
     `(:mcall set-defun (:const . ,(second expr))
