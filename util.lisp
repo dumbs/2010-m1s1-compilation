@@ -76,14 +76,16 @@
 		   (propper-list-p (cdr l)))))
 
 (defun m-macroexpand-1 (macro)
+  ;; TODO : not implemented yet m-macroexpand-1
+  macro ;; Pour éviter le unused variable.
   ())
 
 (defmacro get-defun (symb)
   `(get ,symb :defun))
 
 (defun set-defun (symb expr)
-  (setf (get-defun (cdaddr li))
-        (cdddr li)))
+  (setf (get-defun symb)
+        expr))
 
 (defmacro get-defmacro (symb)
   `(get ,symb :defmacro))
@@ -108,7 +110,6 @@
 ;; compte dans les tests unitaires etc.
 (defun copy-all (data)
   "Copie récursivement un arbre de listes et de tableaux."
-  (print data)
   (cond 
     ((consp data)
      (cons (copy-all (car data))
