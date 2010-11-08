@@ -110,7 +110,6 @@
 ;; compte dans les tests unitaires etc.
 (defun copy-all (data)
   "Copie récursivement un arbre de listes et de tableaux."
-  (print data)
   (cond 
     ((consp data)
      (cons (copy-all (car data))
