@@ -255,6 +255,7 @@ d’arguments dans un certain environnement."
 (deftestvar (meval :set-var) env #(() 2))
 (deftest (meval :set-var)
   (progn
-    (meval (lisp2li '(setf x 42) ()) env)
+    (meval (lisp2li '(setf x 42) '((x 0 1))) env)
     env)
-  #(() 42))
+  #(() 42)
+  #'equalp)
