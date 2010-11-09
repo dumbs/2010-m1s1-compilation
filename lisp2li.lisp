@@ -1,4 +1,5 @@
 (load "util.lisp")
+(load "match.lisp")
 
 ;; `
 (defvar my-quasiquote (car '`(,a)))
@@ -26,7 +27,7 @@
            . ,(make-stat-env-optional (cdr params) env (+ 1 position) num-env)))))
   
 (defun make-stat-env (params &optional env (position 1) num-env)
-  (unless num-env (setq num-env (+ (or (second (first env)) -1) 1)))
+  (unless num-env (setf num-env (+ (or (second (first env)) -1) 1)))
   (cond ((endp params)
          env)
         ((eq '&optional (car params))
@@ -156,6 +157,9 @@ par le compilateur et par l’interpréteur"
           `(:set-var (,(second cell) ,(third cell))
                      ,(lisp2li (third expr) env)))
       `(:set-fun ,(caadr expr) ,@(last expr) ,@(cdadr expr))))
+   ;; setq
+   ((eq 'setq (car expr))
+    (lisp2li `(setf ,@(cdr expr)) env))
    ;; progn
    ((eq 'progn (car expr))
     (cons :progn (map-lisp2li (cdr expr) env)))
