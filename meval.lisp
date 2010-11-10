@@ -109,7 +109,7 @@ d’arguments dans un certain environnement."
                (let ((sub-env (get-env-num num-env env)))
                  (if sub-env
                      (aref sub-env index)
-                   (error "The variable unbound" expr))))
+                   (error "The variable unbound : ~w" expr))))
               ((:nil :if :predicat @. :expr1 @. :expr2 @.)
                (if (meval predicat env)
                    (meval expr1 env)

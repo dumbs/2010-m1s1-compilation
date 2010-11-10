@@ -143,6 +143,14 @@ par le compilateur et par l’interpréteur"
                                       ,(lisp2li value env))))
                        names values)
                     ,(lisp2li (implicit-progn body) new-env)))))
+   ((eq 'let* (car expr))
+    (cond-match expr
+                (((? (eq x 'let*)) :bindings () :body _*)
+                 (lisp2li (implicit-progn body) env))
+                (((? (eq x 'let*)) :bindings ((:name $ :value _) :rest ($ _)*) :body _*)
+                 (lisp2li `(let ((,name ,value))
+                             (let* ,rest
+                               ,@body)) env))))
    ;; defun
    ((eq 'defun (car expr))
     `(:call set-defun (:const . ,(second expr))
