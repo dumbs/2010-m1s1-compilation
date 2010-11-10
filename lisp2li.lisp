@@ -1,4 +1,5 @@
 (load "util.lisp")
+(load "match.lisp")
 
 ;; `
 (defvar my-quasiquote (car '`(,a)))
@@ -26,7 +27,7 @@
            . ,(make-stat-env-optional (cdr params) env (+ 1 position) num-env)))))
   
 (defun make-stat-env (params &optional env (position 1) num-env)
-  (unless num-env (setq num-env (+ (or (second (first env)) -1) 1)))
+  (unless num-env (setf num-env (+ (or (second (first env)) -1) 1)))
   (cond ((endp params)
          env)
         ((eq '&optional (car params))
@@ -130,9 +131,29 @@ par le compilateur et par l’interpréteur"
    ;; #'fn (FUNCTION fn)
    ((eq 'function (car expr))
     `(:sclosure ,(cadr expr)))
+   ;; let
+   ((eq 'let (car expr))
+    (match (let :bindings ((:names $ :values _)*) :body _*) expr
+           (let ((new-env (make-stat-env names env)))
+             `(:let ,(length bindings)
+                    ,@(mapcar
+                       (lambda (name value)
+                         (let ((cell (assoc name new-env)))
+                           `(:set-var (,(second cell) ,(third cell))
+                                      ,(lisp2li value env))))
+                       names values)
+                    ,(lisp2li (implicit-progn body) new-env)))))
+   ((eq 'let* (car expr))
+    (cond-match expr
+                (((? (eq x 'let*)) :bindings () :body _*)
+                 (lisp2li (implicit-progn body) env))
+                (((? (eq x 'let*)) :bindings ((:name $ :value _) :rest ($ _)*) :body _*)
+                 (lisp2li `(let ((,name ,value))
+                             (let* ,rest
+                               ,@body)) env))))
    ;; defun
    ((eq 'defun (car expr))
-    `(:mcall set-defun (:const . ,(second expr))
+    `(:call set-defun (:const . ,(second expr))
                 ,(lisp2li `(lambda ,(third expr) ,@(cdddr expr)) env)))
    ;; apply
    ((eq 'apply (car expr))
@@ -144,6 +165,9 @@ par le compilateur et par l’interpréteur"
           `(:set-var (,(second cell) ,(third cell))
                      ,(lisp2li (third expr) env)))
       `(:set-fun ,(caadr expr) ,@(last expr) ,@(cdadr expr))))
+   ;; setq
+   ((eq 'setq (car expr))
+    (lisp2li `(setf ,@(cdr expr)) env))
    ;; progn
    ((eq 'progn (car expr))
     (cons :progn (map-lisp2li (cdr expr) env)))
@@ -215,11 +239,11 @@ par le compilateur et par l’interpréteur"
 
 (deftest (lisp2li defun)
   (lisp2li '(defun bar (x) x) ())
-  '(:mcall set-defun (:const . bar) (:lclosure 1 :cvar 0 1)))
+  '(:call set-defun (:const . bar) (:lclosure 1 :cvar 0 1)))
 
 (deftest (lisp2li defun)
   (lisp2li '(defun foo (x y z) (list x y z)) ())
-  '(:mcall set-defun (:const . foo)
+  '(:call set-defun (:const . foo)
            (:lclosure 3 :call list
                       (:cvar 0 1)
                       (:cvar 0 2)
@@ -227,11 +251,11 @@ par le compilateur et par l’interpréteur"
 
 (deftest (lisp2li setf)
   (lisp2li '(setf y 42) '((x 0 1) (y 0 2)))
-  '(:set-var (0 2) 42))
+  '(:set-var (0 2) (:const . 42)))
 
 (deftest (lisp2li setf)
   (lisp2li '(setf (cdr '(1 2 3)) 42) ())
-  '(:set-fun cdr 42 '(1 2 3)))
+  '(:set-fun cdr 42  '(1 2 3)))
 
 (deftest (lisp2li lambda)
   (lisp2li '(mapcar (lambda (x y z) (list x y z)) '(1 2 3)) ())
@@ -317,3 +341,34 @@ par le compilateur et par l’interpréteur"
                (:call eq (:call car (:const 1 2)) (:const . 1)))
         (:const . nil)
         (:const . T)))
+
+(deftest (lisp2li let)
+  (lisp2li '(let ((x 1) (y 2))
+              (cons x y)) ())
+  '(:let 2 (:set-var (0 1) (:const . 1))
+         (:set-var (0 2) (:const . 2))
+         (:call cons (:cvar 0 1) (:cvar 0 2))))
+
+(deftest (lisp2li let)
+  (lisp2li '(let ((x 1) (y 2))
+              (cons x y)
+              (list x y)) ())
+  '(:let 2 (:set-var (0 1) (:const . 1))
+         (:set-var (0 2) (:const . 2))
+         (:progn
+          (:call cons (:cvar 0 1) (:cvar 0 2))
+          (:call list (:cvar 0 1) (:cvar 0 2)))))
+
+(deftest (lisp2li let)
+  (lisp2li '(let ((x z) (y 2))
+              (cons x y)) '((z 0 1)))
+  '(:let 2 (:set-var (1 1) (:cvar 0 1))
+         (:set-var (1 2) (:const . 2))
+         (:call cons (:cvar 1 1) (:cvar 1 2))))
+
+(deftest (lisp2li let)
+  (lisp2li '(let ((x 2))
+              (cons x z)) '((z 0 1)))
+  '(:let 1 (:set-var (1 1) (:const . 2))
+         (:call cons (:cvar 1 1) (:cvar 0 1))))
+         

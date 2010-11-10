@@ -61,17 +61,6 @@ du &rest dans une cellule de l'env sous forme d'une liste"
 (defun map-meval (list env)
   (mapcar (lambda (x) (meval x env)) list))
 
-(defun meval-progn (list env)
-  "Mevalue toutes les sous expressions et renvoie
-la valeur de la dernier"
-  (if (endp list)
-      nil
-    (if (endp (cdr list))
-        (meval (car list) env)
-      (progn
-        (meval (car list) env)
-        (meval-progn (cdr list) env)))))
-
 (defun meval-body (list-expr env)
   "Évalue en séquence la liste des expressions et
 retourne la valeur retournée par la dernière"
@@ -117,28 +106,29 @@ d’arguments dans un certain environnement."
   (cond-match expr
               ((:nil :const :val . _) expr val)
               ((:nil :cvar :num-env (? integerp) :index (? integerp))
-                (let ((sub-env (get-env-num num-env env)))
-                (if sub-env
-                    (aref sub-env index)
-                  (error "The variable unbound" expr))))
+               (let ((sub-env (get-env-num num-env env)))
+                 (if sub-env
+                     (aref sub-env index)
+                   (error "The variable unbound : ~w" expr))))
               ((:nil :if :predicat @. :expr1 @. :expr2 @.)
-                (if (meval predicat env)
-                    (meval expr1 env)
-                  (meval expr2 env)))
+               (if (meval predicat env)
+                   (meval expr1 env)
+                 (meval expr2 env)))
               ((:nil :call :func-name _ :body _*)
                (apply (symbol-function func-name) (map-meval body env)))
               ((:nil :mcall :lambda (:nil :lclosure (? integerp) (? integerp)? _*) :args _*)
                (meval-lambda lambda (meval-args args env) env))
-              (match (:nil :progn :body @.+)
-                     (meval-body body env))
+              ((:nil :progn :body @.+)
+               (meval-body body env))
               ((:nil :lclosure (? integerp) (? integerp)? :body _*)
-                (meval-body `(,body) env))
+               (meval-body `(,body) env))
               ((:nil :set-var :place @. :value _)
                (msetf place value env))
+              ((:nil :let :size (? integerp) :affectations (:nil :set-var :places @ :values _)* :body _*)
+               (meval-body body (make-env size (meval-args values env) env)))
               (_*
                (error "form special ~S not yet implemented" expr))))
 
-        
 ;; Test unitaire
 (load "test-unitaire")
 (load "lisp2li")
@@ -256,6 +246,7 @@ d’arguments dans un certain environnement."
 (deftestvar (meval :set-var) env #(() 2))
 (deftest (meval :set-var)
   (progn
-    (meval (lisp2li '(setf x 42) ()) env)
+    (meval (lisp2li '(setf x 42) '((x 0 1))) env)
     env)
-  #(() 42))
+  #(() 42)
+  #'equalp)

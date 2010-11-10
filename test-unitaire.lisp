@@ -132,7 +132,7 @@
 
 (erase-tests test-unitaire)
 (deftest (test-unitaire copy-all)
-    (let* ((foo #(a b (1 #(2 4 6) 3) c))
+  (let* ((foo #(a b (1 #(2 4 6) 3) c))
            (copy-of-foo (copy-all foo)))
       copy-of-foo
       (setf (aref (cadr (aref copy-of-foo 2)) 1) (cons 'MODIFIED (random 42)))
