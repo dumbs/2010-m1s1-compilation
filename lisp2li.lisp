@@ -25,9 +25,12 @@
         (T
          `((,(car params) ,num-env ,position)
            . ,(make-stat-env-optional (cdr params) env (+ 1 position) num-env)))))
-  
+
+(defun env-depth (env)
+  (+ (or (second (first env)) -1) 1))
+
 (defun make-stat-env (params &optional env (position 1) num-env)
-  (unless num-env (setf num-env (+ (or (second (first env)) -1) 1)))
+  (unless num-env (setf num-env (env-depth)))
   (cond ((endp params)
          env)
         ((eq '&optional (car params))
@@ -78,6 +81,16 @@
   (if (n-consp 2 expr)
       (cons 'progn  expr)
     (car expr)))
+
+(defun simplify (li)
+  (cond-match li
+              ((:nil :progn :expr _)
+               (simplify expr))
+              ((:nil :progn _* (:nil :progn :body1 _*)+ :body2 _*)
+               (simplify `(:progn body1 body2)))
+              ((:nil :let _* (:nil :progn :body1 _*)+ :body2 _*)
+               (simplify `))
+              (_* li)))
 
 (defun lisp2li (expr env)
   "Convertit le code LISP en un code intermédiaire reconnu
@@ -207,6 +220,113 @@ par le compilateur et par l’interpréteur"
 (deftest (lisp2li make-stat-env)
   (make-stat-env '(x y &optional (z t)))
   '((x 0 1) (y 0 2) (z 0 3) (z-p 0 4)))
+
+(deftest (lisp2li simplify :progn)
+  (simplify '(:progn (:const . 3)))
+  '(:const . 3))
+
+(deftest (lisp2li simplify :progn)
+  (simplify '(:progn (:call list (:const . 1) (:const . 2))))
+  '(:call list (:const . 1) (:const . 2)))
+
+(deftest (lisp2li simplify :progn)
+  (simplify '(:progn (:progn (:const . 3) (:const . 4))))
+  '(:progn (:const . 3) (:const . 4)))
+
+(deftest (lisp2li simplify :progn)
+  (simplify '(:progn (:const . 3) (:const . 4) (:progn (:const . 5) (:const . 6))))
+  '(:progn (:const . 3) (:const . 4) (:const . 5) (:const . 6)))
+
+(deftest (lisp2li simplify :progn)
+  (simplify '(:progn (:const . 1) (:const . 2) (:progn (:const . 3) (:const . 4)) (:const . 5) (:const . 6)))
+  '(:progn (:const . 1) (:const . 2) (:const . 3) (:const . 4) (:const . 5) (:const . 6)))
+
+(deftest (lisp2li simplify :progn)
+  (simplify '(:progn (:const . 1) (:const . 2) (:progn (:const . 3) (:const . 4)) (:const . 5) (:progn (:const . 6) (:const . 7))))
+  '(:progn (:const . 1) (:const . 2) (:const . 3) (:const . 4) (:const . 5) (:const . 6) (:const . 7)))
+
+(deftest (lisp2li simplify :let-progn)
+  (simplify '(:let (:progn (:const . 3) (:const . 4))))
+  '(:let (:const . 3) (:const . 4)))
+
+(deftest (lisp2li simplify :let-progn)
+  (simplify '(:let (:const . 3) (:const . 4) (:progn (:const . 5) (:const . 6))))
+  '(:let (:const . 3) (:const . 4) (:const . 5) (:const . 6)))
+
+(deftest (lisp2li simplify :let-progn)
+  (simplify '(:let (:const . 1) (:const . 2) (:progn (:const . 3) (:const . 4)) (:const . 5) (:const . 6)))
+  '(:let (:const . 1) (:const . 2) (:const . 3) (:const . 4) (:const . 5) (:const . 6)))
+
+(deftest (lisp2li simplify :let-progn)
+  (simplify '(:let (:const . 1) (:const . 2) (:progn (:const . 3) (:const . 4)) (:const . 5) (:progn (:const . 6) (:const . 7))))
+  '(:let (:const . 1) (:const . 2) (:const . 3) (:const . 4) (:const . 5) (:const . 6) (:const . 7)))
+
+(deftest (lisp2li simplify :progn-let)
+  (simplify '(:progn (:let 0 (:const . 3) (:const . 4))))
+  '(:let 0 (:const . 3) (:const . 4)))
+
+(deftest (lisp2li simplify :progn-let)
+  (simplify '(:progn (:let 2 (:const . 3) (:const . 4) (:progn (:const . 5) (:const . 6)))))
+  '(:let 2 (:const . 3) (:const . 4) (:const . 5) (:const . 6)))
+
+(deftest (lisp2li simplify :progn-let)
+  (simplify '(:progn (:const . 1) (:const . 2) (:let 1 (:const . 3) (:const . 4)) (:const . 5) (:const . 6)))
+  '(:let 1 (:const . 1) (:const . 2) (:const . 3) (:const . 4) (:const . 5) (:const . 6)))
+
+(deftest (lisp2li simplify :progn-let)
+  (simplify '(:progn (:const . 1) (:const . 2) (:let 5 (:const . 3) (:const . 4)) (:const . 5) (:progn (:const . 6) (:const . 7))))
+  '(:let 5 (:const . 1) (:const . 2) (:const . 3) (:const . 4) (:const . 5) (:const . 6) (:const . 7)))
+
+(deftest (lisp2li simplify :let-let)
+  (simplify '(:let 1 (:let 1 (:const . 3) (:const . 4))))
+  '(:let 2 (:const . 3) (:const . 4)))
+
+(deftest (lisp2li simplify :let-let)
+  (simplify '(:let 3 (:let 2 (:const . 3) (:const . 4) (:progn (:const . 5) (:const . 6)))))
+  '(:let 5 (:const . 3) (:const . 4) (:const . 5) (:const . 6)))
+
+(deftest (lisp2li simplify :let-let)
+  (simplify '(:let 2 (:const . 1) (:const . 2) (:let 1 (:const . 3) (:const . 4)) (:const . 5) (:const . 6)))
+  '(:let 3 (:const . 1) (:const . 2) (:const . 3) (:const . 4) (:const . 5) (:const . 6)))
+
+(deftest (lisp2li simplify :let-let)
+  (simplify '(:let 5 (:const . 1) (:const . 2) (:let 5 (:const . 3) (:const . 4)) (:const . 5) (:let 2 (:const . 6) (:const . 7))))
+  '(:let 12 (:const . 1) (:const . 2) (:const . 3) (:const . 4) (:const . 5) (:const . 6) (:const . 7)))
+
+(deftest (lisp2li simplify :if)
+  (simplify '(:if (:const . nil) (:call list 1 2 3) (:const . T)))
+  '(:const . T))
+
+(deftest (lisp2li simplify :if)
+  (simplify '(:if (:const . nil) (:progn (:let 2 (:const . 1)) (:const . 2)) (:call list (:const 1 2 3))))
+  '(:call list (:const 1 2 3)))
+
+(deftest (lisp2li simplify :if)
+  (simplify '(:if (:const . nil) (:const . nil) (:progn (:let 2 (:const . 1)) (:const . 2)) ))
+  '(:call list (:const 1 2 3)))
+
+(deftest (lisp2li simplify :if)
+  (simplify '(:if (:const . 2) (:const .nil) (:const . T)))
+  '(:const . nil))
+
+(deftest (lisp2li simplify :if)
+  (simplify '(:if (:const . T) (:const . 3) (:const . 4)))
+  '(:const . 4))
+
+(deftest (lisp2li simplify :if)
+  (simplify '(:if (:const 1 2 3) (:progn (:let 3 (:const . 3)) (:let 4 (:const . 4))) (:const . 4)))
+  '(:let 7 (:const . 3) (:const . 4) (:const . 4)))
+
+(deftest (lisp2li simplify :let-cvar)
+  (simplify '(:let 3 (:const . T) (:let 4 (:cvar 0 1) (:const . 4))))
+  '(:let 7 (:const . T) (:cvar 0 1) (:const . 4)))
+
+(deftest (lisp2li simplify :let-cvar)
+  (simplify '(:progn (:cvar 0 1)
+                     (:LET (:CONST . T)
+                           (:LET (:PROGN (:CVAR 0 1) (:cvar 1 1) (:cvar 2 1) (:CONST . 4))))))
+  '(:let 6 (:const . T) (:cvar 0 1) (:cvar 0 1) (:cvar 0 2)))
+
 
 (deftest (lisp2li constante)
   (lisp2li '3 ())
@@ -371,4 +491,4 @@ par le compilateur et par l’interpréteur"
               (cons x z)) '((z 0 1)))
   '(:let 1 (:set-var (1 1) (:const . 2))
          (:call cons (:cvar 1 1) (:cvar 0 1))))
-         
+
