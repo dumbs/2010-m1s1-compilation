@@ -85,6 +85,9 @@ retourne la liste de leurs valeurs"
 (defun meval-lambda (lclosure args env)
   "Applique une λ-fonction quelconque à des valeurs
 d’arguments dans un certain environnement."
+  (print "meval-lambda")
+  (print env)
+  (print args)
   (match (:nil :lclosure :size (? integerp) :rest (? integerp)? :body _*) lclosure
          (meval lclosure
                 (make-env size args env rest))))
@@ -108,6 +111,7 @@ d’arguments dans un certain environnement."
 
 (defun meval (expr &optional (env #()))
   "Interprète le langage intermédiaire passé en paramètre."
+  (print expr)
   (cond-match expr
               ((:nil :const :val . _) expr val)
               ((:nil :cvar :num-env (? integerp) :index (? integerp))
@@ -116,26 +120,31 @@ d’arguments dans un certain environnement."
                      (aref sub-env index)
                    (error "The variable unbound : ~w" expr))))
               ((:nil :if :predicat @. :expr1 @. :expr2 @.)
+               (print "Je suis dans le if")
+               (print env)
                (if (meval predicat env)
                    (meval expr1 env)
                  (meval expr2 env)))
-              ((:nil :call :func-name _ :body _*)
-               (apply (symbol-function func-name) (map-meval body env)))
-              ((:nil :mcall :lambda (:nil :lclosure (? integerp) (? integerp)? _*) :args _*)
-               (meval-lambda lambda (meval-args args env) env))
               ((:nil :mcall set-defun :func-name @. :closure _*)
                (let ((name (meval func-name env)))
                  (setf (get name :defun) closure)
                  name))
               ((:nil :mcall :func-name $ :params _*)
-               (meval-lambda (car (get func-name :defun)) (meval-args params env) env))
+               (let ((values (meval-args params env)))
+                 (meval-lambda (car (get func-name :defun))
+                               values
+                               (make-env (length values)
+                                       values
+                                       env))))
+              ((:nil :mcall :lambda (:nil :lclosure (? integerp) (? integerp)? _*) :args _*)
+               (meval-lambda lambda (meval-args args env) env))
+              ((:nil :call :func-name _ :body _*)
+               (print "je suis dans le :call")
+               (apply (symbol-function func-name) (meval-args body env)))
               ((:nil :progn :body @.+)
                (meval-body body env))
               ((:nil :lclosure :size (? integerp) :rest (? integerp)? :body _*)
-               (meval-body `(,body) (make-env size
-                                              (make-empty-list size)
-                                              env
-                                              rest)))
+               (meval-body `(,body) env))
               ((:nil :set-var :place @. :value _)
                (msetf place value env))
               ((:nil :let :size (? integerp) :affectations (:nil :set-var :places @ :values _)* :body _*)
