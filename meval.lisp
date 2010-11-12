@@ -85,9 +85,6 @@ retourne la liste de leurs valeurs"
 (defun meval-lambda (lclosure args env)
   "Applique une λ-fonction quelconque à des valeurs
 d’arguments dans un certain environnement."
-  (print "meval-lambda")
-  (print env)
-  (print args)
   (match (:nil :lclosure :size (? integerp) :rest (? integerp)? :body _*) lclosure
          (meval lclosure
                 (make-env size args env rest))))
@@ -111,7 +108,6 @@ d’arguments dans un certain environnement."
 
 (defun meval (expr &optional (env #()))
   "Interprète le langage intermédiaire passé en paramètre."
-  (print expr)
   (cond-match expr
               ((:nil :const :val . _) expr val)
               ((:nil :cvar :num-env (? integerp) :index (? integerp))
@@ -129,13 +125,24 @@ d’arguments dans un certain environnement."
                (let ((name (meval func-name env)))
                  (setf (get name :defun) closure)
                  name))
-              ((:nil :mcall :func-name $ :params _*)
+              ((:nil :mcall set-defmacro :macro-name @. :closure _*)
+               (let ((name (meval macro-name env)))
+                 (setf (get name :defmacro) closure)
+                 name))
+              ((:nil :mcall :func-name (? (get x :defun)) :params _*)
                (let ((values (meval-args params env)))
                  (meval-lambda (car (get func-name :defun))
                                values
                                (make-env (length values)
                                        values
                                        env))))
+              ((:nil :mcall :macro-name (? (get x :defmacro)) :params _*)
+               (let ((values (meval-args params env)))
+                 (meval (lisp2li (meval-lambda (car (get macro-name :defmacro))
+                               params
+                               (make-env (length values)
+                                         values
+                                         env)) env) env)))
               ((:nil :mcall :lambda (:nil :lclosure (? integerp) (? integerp)? _*) :args _*)
                (meval-lambda lambda (meval-args args env) env))
               ((:nil :call :func-name _ :body _*)

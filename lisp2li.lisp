@@ -160,7 +160,11 @@ par le compilateur et par l’interpréteur"
    ;; fonction meta-definie
    ((get (car expr) :defun)
     `(:mcall ,(car expr)
-          ,@(mapcar (lambda (x) (lisp2li x env)) (cdr expr))))
+             ,@(mapcar (lambda (x) (lisp2li x env)) (cdr expr))))
+   ;; macro meta-definie
+   ((get (car expr) :defmacro)
+    `(:mcall ,(car expr)
+             ,@(mapcar (lambda (x) (lisp2li x env)) (cdr expr))))
    ;; fonction inconnue
    ((and (not (fboundp (car expr)))
          (not (get (car expr) :defun)))
@@ -204,6 +208,10 @@ par le compilateur et par l’interpréteur"
    ((eq 'defun (car expr))
     `(:mcall set-defun (:const . ,(second expr))
                 ,(lisp2li `(lambda ,(third expr) ,@(cdddr expr)) env)))
+   ;; defmacro
+   ((eq 'defmacro (car expr))
+    `(:mcall set-defmacro (:const . ,(second expr))
+             ,(lisp2li `(lambda ,(third expr) ,@(cdddr expr)) env)))
    ;; apply
    ((eq 'apply (car expr))
     `(:sapply ,(second expr) ,@(cddr expr)))
