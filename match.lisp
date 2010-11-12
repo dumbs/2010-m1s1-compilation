@@ -39,7 +39,7 @@
                   ((eq (car pred) 'function) pred)
                   ((eq (car pred) 'lambda)   pred)
                   (t
-                   `(lambda (x) ,pred))))
+                   `(lambda (x) x ,pred))))
           pattern))
 
 (defun pattern-match-do-lambdas-1 (pattern)
@@ -401,6 +401,9 @@
   (if (keywordp pattern)
       `(real-match (,pattern . ,expr) ,(car body) ,(cdr body))
       `(real-match ,pattern ,expr ,body)))
+
+(defmacro if-match (pattern expr body-if body-else)
+  `(real-match ,pattern ,expr (,body-if) ,body-else))
 
 (defmacro cond-match-1 (expr cond-clauses)
   (if (endp cond-clauses)

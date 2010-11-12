@@ -2,7 +2,8 @@ TODO :
 - Ajouter la fonction map-case-analysis
 - Changer les <signal> par les fonctions warn (warning ?) ou error selon le cas d'utilisation.
 - Remplacer les ";; cas machin" par le code effectif.
-
+- copy-all doit gérer les structures circulaires
+- modifier run-tests pour qu'il renvoie la syntaxe d'un appel de macro qui ferait les let des deftestvar correctement (sans appel à eval).
 
 Questions :
 - Le prof a dit qu'on ne devait pas gérer le tas, donc pas d'affectations (setf, ...).

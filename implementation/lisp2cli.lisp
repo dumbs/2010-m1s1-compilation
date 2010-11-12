@@ -1,17 +1,9 @@
 ;; lisp2li simpliste pour le compilateur. On fusionnera les deux plus tard.
 
-(defvar lisp2cli-rules-conditions '())
-(defvar lisp2cli-rules-functions '())
+(defmatch lisp2cli)
 
-(defun lisp2cli (expr)
-  (some (lambda (condition rule)
-          (if (funcall (cdr condition) expr)
-              (funcall (cdr rule) expr)))
-        lisp2cli-rules-conditions
-        lisp2cli-rules-functions))
-
-(defmacro deflisp2cli-rule (name condition &rest body)
-  `(progn (aset ',name (lambda (expr) ,condition) lisp2cli-rules-conditions)
-          (aset ',name (lambda (expr) ,@body) lisp2cli-rules-functions)))
-
-(deflisp2cli-rule quote (match (quote (_ . _)) expr)
+(defmatch lisp2cli (:num . (? numberp)) `(:const . ,num))
+(defmatch lisp2cli (:str . (? stringp)) `(:const . ,str))
+(defmatch lisp2cli (quote :val _)       `(:const . ,val))
+(defmatch lisp2cli ()                   `(:const . nil))
+(defmatch lisp2cli (:x . _)             (error "Lisp2cli ne sait pas gérer : ~w" x))
