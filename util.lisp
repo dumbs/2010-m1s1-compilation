@@ -132,3 +132,12 @@
     (t
      (warn "copy-all : Je ne sais pas copier ~w" data)
      data)))
+
+(defun flatten (lst &optional rest result)
+  (if (endp lst)
+      (if (endp rest)
+          (reverse result)
+          (flatten (car rest) (cdr rest) result))
+      (if (listp (car lst))
+          (flatten (car lst) (cons (cdr lst) rest) result)
+          (flatten (cdr lst) rest (cons (car lst) result)))))

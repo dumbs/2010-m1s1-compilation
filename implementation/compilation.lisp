@@ -1,4 +1,5 @@
 (load "match")
+(load "util")
 (load "implementation/lisp2cli")
 
 (defvar asm-fixnum-size 32)
@@ -41,8 +42,8 @@
 (defmacro my-compile (expr)
   `(progn (setq result-asm nil)
           (setq asm-once nil)
-          (my-compile-1 (lisp2cli ',expr))
-          (format nil "~&~{~%~a~}" (reverse result-asm))))
+          (my-compile-1 `(:main ,(lisp2cli ',expr)))
+          (format nil "~&~{~%~a~}" (flatten (reverse result-asm)))))
 
 ;;; Règles de compilation
 
@@ -76,11 +77,29 @@
 
 ;; cons
 (defmatch my-compile-1 (:nil :const . (:car _ :cdr . _))
-  (format t "~&> ~w ~w" car cdr)
   (asm-block 'data "cons-cell-constant"
              (db-type 'cons)
              (fasm "db @~a" (my-compile-1 `(:const . ,car)))
              (fasm "db @~a" (my-compile-1 `(:const . ,cdr)))))
+
+(defun compile-get-val (cli)
+  (if (match (:nil :const . _) cli)
+      (list (fasm "load @~a r0" (my-compile-1 cli))
+            (fasm "push r0"))
+      (list (my-compile-1 cli)
+            (fasm "push r0"))))
+
+;; call
+(defmatch my-compile-1 (:nil :call :name _ :params . _)
+  (list
+   (mapcar #'compile-get-val params)
+   (fasm "push ~a" (length params))
+   (fasm "jsr function-~a" name)))
+
+;; main
+(defmatch my-compile-1 (:nil :main :body _*)
+  (asm-once 'code "main"
+            (mapcar #'my-compile-1 body)))
 
 ;;; Exemples
 
@@ -95,19 +114,20 @@
 (my-compile (+ 2 3))
 ;; =>
 ;; section .data
-;; :global-1
+;; fixnum-constant-1:
 ;;   db 1
 ;;   db 2
 ;; section .data
-;; :global-2
+;; fixnum-constant-2:
 ;;   db 1
 ;;   db 3
-;; section .text
-;; :fn-main
+;; section .code
+;; code-1:
 ;;   load @global-1 r0
 ;;   push r0
-;;   load @global-2
+;;   load @global-2 r0
 ;;   push r0
+;;   push 2
 ;;   jsr @fn-+
 ;;   retn
 ;; section .text
