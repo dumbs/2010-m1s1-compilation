@@ -167,7 +167,8 @@ par le compilateur et par l’interpréteur"
              ,@(mapcar (lambda (x) (lisp2li x env)) (cdr expr))))
    ;; fonction inconnue
    ((and (not (fboundp (car expr)))
-         (not (get (car expr) :defun)))
+         (not (get (car expr) :defun))
+         (not (get (car expr) :defmacro)))
     `(:unknown ,expr ,env))
    ;; if
    ((eq 'if (car expr))
@@ -233,12 +234,15 @@ par le compilateur et par l’interpréteur"
     (cons :const nil))
    ;; macros
    ((macro-function (car expr))
-    (lisp2li (macroexpand expr) env))
+    (print "macro-function")
+    (lisp2li (macroexpand-1 expr) env))
    ;; foctions normales
    ((not (special-operator-p (car expr)))
     `(:call ,(first expr) ,@(map-lisp2li (cdr expr) env)))
    (T
     (error "special form not yet implemented ~S" (car expr)))))
+
+;; TODO : demander au prof comment corriger (or (= n 0) (= n 1)) qui rend nil car il fait 2 macroexpand 1: (COND ((= N 0)) (T (= N 1))) 2: (LET (#1=#:RESULT-7048) (IF (SETQ #1# (= N 0)) #1# (= N 1))) et 2 vaux nil car n != 0
 
 ;; Test unitaire
 (load "test-unitaire")

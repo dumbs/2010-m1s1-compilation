@@ -1,15 +1,29 @@
 (load "match")
 
-(defun get-env-num (num env)
-"Récupère l’environnement correspondant à celui souhaité."
-  (defun get-env-num-t (num env counter)
-    (cond ((= counter num) env)
-          ((eq (aref env 0) nil) nil)
-          (T
-           (get-env-num-t num (aref env 0) (+ 1 counter))
-           )))
-  (get-env-num-t num env 0))
+(defun env-size (env)
+  (if (or (equalp env #()) (eq env nil))
+      0
+    (+ 1 (env-size (aref env 0)))))
 
+(defun get-env-num (num env)
+  "Récupère l’environnement correspondant à celui souhaité."
+  (defun get-env-num-r (num env counter)
+    (cond ((or (equalp env #()) (eq env nil))
+           env)
+          ((= num counter)
+           env)
+          (T
+           (get-env-num-t num (aref env 0) (- counter 1)))))
+  (get-env-num-r num env (- (env-size env) 1)))
+
+(defun current-env (env)
+  (let ((env-size (- (env-size env) 1)))
+    (defun current-env-r (env counter)
+      (if (= counter env-size)
+          env
+        (current-env-r (aref env 0) (+ counter 1))))
+    (current-env-r env 0)))
+                          
 (defun get-lower-env (env)
   "Récupère l’environnement le plus bas"
   (if (or (= (array-total-size env) 0)
@@ -37,16 +51,17 @@ du &rest dans une cellule de l'env sous forme d'une liste"
  correspondantes et signale une exception si paramètres et arguments
  ne concordent pas. Si l’environnement passe en paramètre n’est pas vide,
  le nouvel environnement y est inclus."
-  (cond ((and (not pos-rest)
-              (< size (length list-values)))
-         (error "Too arguments"))
-        ((> size (length list-values))
-         (error "Too few arguments"))
-        (T
-         (if (= (array-total-size env) 0)
-             (setf env (make-array (+ 1 size)))
-           (setf (aref (get-lower-env env) 0) (make-array (+ 1 size))))
-           (let ((lower-env (get-lower-env env)))
+  (let ((new-env (copy-all env)))
+    (cond ((and (not pos-rest)
+                (< size (length list-values)))
+           (error "Too arguments"))
+          ((> size (length list-values))
+           (error "Too few arguments"))
+          (T
+           (if (= (array-total-size new-env) 0)
+               (setf new-env (make-array (+ 1 size)))
+             (setf (aref (get-lower-env new-env) 0) (make-array (+ 1 size))))
+           (let ((lower-env (get-lower-env new-env)))
              (if pos-rest
                  (make-rest lower-env
                             list-values
@@ -56,7 +71,7 @@ du &rest dans une cellule de l'env sous forme d'une liste"
                 for rank = 1 then (+ rank 1)
                 do (setf (aref lower-env rank) value)
                 )))
-           env)))
+           new-env))))
 
 (defun map-meval (list env)
   (mapcar (lambda (x) (meval x env)) list))
@@ -111,13 +126,13 @@ d’arguments dans un certain environnement."
   (cond-match expr
               ((:nil :const :val . _) expr val)
               ((:nil :cvar :num-env (? integerp) :index (? integerp))
-               (let ((sub-env (get-env-num num-env env)))
-                 (if sub-env
-                     (aref sub-env index)
-                   (error "The variable unbound : ~w" expr))))
+               (if (= num-env 0)
+                   (aref (current-env env) index)
+                 (let ((sub-env (get-env-num num-env env)))
+                   (if sub-env
+                       (aref sub-env index)
+                     (error "The variable unbound : ~w" expr)))))
               ((:nil :if :predicat @. :expr1 @. :expr2 @.)
-               (print "Je suis dans le if")
-               (print env)
                (if (meval predicat env)
                    (meval expr1 env)
                  (meval expr2 env)))
@@ -146,7 +161,6 @@ d’arguments dans un certain environnement."
               ((:nil :mcall :lambda (:nil :lclosure (? integerp) (? integerp)? _*) :args _*)
                (meval-lambda lambda (meval-args args env) env))
               ((:nil :call :func-name _ :body _*)
-               (print "je suis dans le :call")
                (apply (symbol-function func-name) (meval-args body env)))
               ((:nil :progn :body @.+)
                (meval-body body env))
