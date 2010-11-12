@@ -30,7 +30,7 @@
   (+ (or (second (first env)) -1) 1))
 
 (defun make-stat-env (params &optional env (position 1) num-env)
-  (unless num-env (setf num-env (env-depth)))
+  (unless num-env (setf num-env (env-depth env)))
   (cond ((endp params)
          env)
         ((eq '&optional (car params))
@@ -82,22 +82,46 @@
       (cons 'progn  expr)
     (car expr)))
 
-(defun simplify (li)
+
+(defun simplify (li) ;; TODO : a finir
   (cond-match li
               ((:nil :progn :expr _)
                (simplify expr))
-              ((:nil :progn _* (:nil :progn :body1 _*)+ :body2 _*)
-               (simplify `(:progn body1 body2)))
-              ((:nil :let _* (:nil :progn :body1 _*)+ :body2 _*)
-               (simplify `))
-              (_* li)))
+              ((:nil :progn :body0 _* (:nil :progn :body1 _*)+ :body2 _*)
+               (simplify `(:progn ,@body0 ,@(car body1) ,@body2)))
+              ((:nil :progn :body0 _* (:nil :let :size (? integerp) :body1 _*)+ :body2 _*)
+               (simplify `(:let ,@size ,@body0 ,@(car body1) ,@body2)))
+              ((:nil :let :size1 (? integerp) :body1 _*
+                     (:nil :let :size2 (? integerp)
+                           (:nil :set-var (:depth-set (? integerp) :index-set (? integerp)) @.)+
+                           :var1 (:nil :cvar :depth1 (? integerp) :index1 (? integerp))*
+                           :body2 _* :var2 (:nil :cvar :depth2 (? integerp) :index2 (? integerp))*)
+                     :body3 _*)
+               (simplify `(:let ,(+ size1 size2)
+                                ,@body1
+                                ,@(mapcar
+                                 (lambda (depth index)
+                                   `(:cvar ,(- depth 1) ,(+ index size1))) depth1 index1)
+                                ,@body2
+                                ,@(if (and depth2 index2)
+                                     (mapcar
+                                        (lambda (depth index)
+                                          `(:cvar ,(- depth 1) ,(+ index size1))) depth2 index2))
+                                ,@body3)))
+              ((:nil :let :body0 _* (:nil :progn :body1 _*)+ :body2 _*)
+               (simplify `(:let ,@body0 ,@(car body1) ,@body2)))
+              ((:nil :let :size1 (? integerp) :body0 _* (:nil :let :size2 (? integerp) :body1 _*)+ :body2 _*)
+               (simplify `(:let ,(+ size1 (car size2)) ,@body0 ,@(car body1) ,@body2)))
+              ((:nil :if (:nil :const :cond . _) :then @. :else @.)
+               (simplify (if cond then else)))
+              (@. li)))
 
-(defun lisp2li (expr env)
+(defun lisp2li (expr &optional env)
   "Convertit le code LISP en un code intermédiaire reconnu
 par le compilateur et par l’interpréteur"
   (cond
    ;; literaux
-   ((and (atom expr) (constantp expr)) 
+   ((and (atom expr) (constantp expr))
     (cons :const expr))
    ;; symboles
    ((symbolp expr)
@@ -125,6 +149,10 @@ par le compilateur et par l’interpréteur"
    ;; (not-symbol ...)
    ((not (symbolp (car expr)))
     (warn "~S isn't a symbol" (car expr)))
+   ;; fonction meta-definie
+   ((get-defun (car expr))
+    `(:mcall ,(car expr)
+          ,@(mapcar (lambda (x) (lisp2li x env)) (cdr expr))))
    ;; fonction inconnue
    ((and (not (fboundp (car expr)))
          (not (get-defun (car expr))))
@@ -166,7 +194,7 @@ par le compilateur et par l’interpréteur"
                                ,@body)) env))))
    ;; defun
    ((eq 'defun (car expr))
-    `(:call set-defun (:const . ,(second expr))
+    `(:mcall set-defun (:const . ,(second expr))
                 ,(lisp2li `(lambda ,(third expr) ,@(cdddr expr)) env)))
    ;; apply
    ((eq 'apply (car expr))
@@ -194,7 +222,6 @@ par le compilateur et par l’interpréteur"
    ((not (special-operator-p (car expr)))
     `(:call ,(first expr) ,@(map-lisp2li (cdr expr) env)))
    (T
-    (print expr)
     (error "special form not yet implemented ~S" (car expr)))))
 
 ;; Test unitaire
@@ -303,29 +330,29 @@ par le compilateur et par l’interpréteur"
 
 (deftest (lisp2li simplify :if)
   (simplify '(:if (:const . nil) (:const . nil) (:progn (:let 2 (:const . 1)) (:const . 2)) ))
-  '(:call list (:const 1 2 3)))
+  '(:let 2 (:const . 1) (:const . 2)))
 
 (deftest (lisp2li simplify :if)
-  (simplify '(:if (:const . 2) (:const .nil) (:const . T)))
+  (simplify '(:if (:const . 2) (:const . nil) (:const . T)))
   '(:const . nil))
 
 (deftest (lisp2li simplify :if)
   (simplify '(:if (:const . T) (:const . 3) (:const . 4)))
-  '(:const . 4))
+  '(:const . 3))
 
 (deftest (lisp2li simplify :if)
   (simplify '(:if (:const 1 2 3) (:progn (:let 3 (:const . 3)) (:let 4 (:const . 4))) (:const . 4)))
-  '(:let 7 (:const . 3) (:const . 4) (:const . 4)))
+  '(:let 7 (:const . 3) (:const . 4)))
 
-(deftest (lisp2li simplify :let-cvar)
-  (simplify '(:let 3 (:const . T) (:let 4 (:cvar 0 1) (:const . 4))))
-  '(:let 7 (:const . T) (:cvar 0 1) (:const . 4)))
+;; (deftest (lisp2li simplify :let-cvar)
+;;   (simplify '(:let 3 (:const . T) (:let 4 (:cvar 1 1) (:const . 4))))
+;;   '(:let 7 (:const . T) (:cvar 0 4) (:const . 4)))
 
-(deftest (lisp2li simplify :let-cvar)
-  (simplify '(:progn (:cvar 0 1)
-                     (:LET (:CONST . T)
-                           (:LET (:PROGN (:CVAR 0 1) (:cvar 1 1) (:cvar 2 1) (:CONST . 4))))))
-  '(:let 6 (:const . T) (:cvar 0 1) (:cvar 0 1) (:cvar 0 2)))
+;; (deftest (lisp2li simplify :let-cvar)
+;;   (simplify '(:progn (:cvar 0 1)
+;;                      (:LET 1 (:CONST . T)
+;;                            (:LET 2 (:CVAR 0 1) (:cvar 1 1) (:cvar 2 1) (:CONST . 4)))))
+;;   '(:let 3 (:cvar 0 1) (:const . T) (:cvar 0 1) (:cvar 0 2) (:cvar 1 2) (:const . 4)))
 
 
 (deftest (lisp2li constante)

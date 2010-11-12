@@ -101,6 +101,11 @@ d’arguments dans un certain environnement."
 (defun meval-closure (clos args)
   (meval-lambda (cadr clos) args (cddr clos)))
 
+(defun make-empty-list (size)
+  (if (= size 0)
+      nil
+    (cons nil (make-empty-list (- size 1)))))
+
 (defun meval (expr &optional (env #()))
   "Interprète le langage intermédiaire passé en paramètre."
   (cond-match expr
@@ -118,14 +123,25 @@ d’arguments dans un certain environnement."
                (apply (symbol-function func-name) (map-meval body env)))
               ((:nil :mcall :lambda (:nil :lclosure (? integerp) (? integerp)? _*) :args _*)
                (meval-lambda lambda (meval-args args env) env))
+              ((:nil :mcall set-defun :func-name @. :closure _*)
+               (let ((name (meval func-name env)))
+                 (setf (get name :defun) closure)
+                 name))
+              ((:nil :mcall :func-name $ :params _*)
+               (meval-lambda (car (get func-name :defun)) (meval-args params env) env))
               ((:nil :progn :body @.+)
                (meval-body body env))
-              ((:nil :lclosure (? integerp) (? integerp)? :body _*)
-               (meval-body `(,body) env))
+              ((:nil :lclosure :size (? integerp) :rest (? integerp)? :body _*)
+               (meval-body `(,body) (make-env size
+                                              (make-empty-list size)
+                                              env
+                                              rest)))
               ((:nil :set-var :place @. :value _)
                (msetf place value env))
               ((:nil :let :size (? integerp) :affectations (:nil :set-var :places @ :values _)* :body _*)
                (meval-body body (make-env size (meval-args values env) env)))
+              ((:nil :unknown :call (:name $ :params _*) :environ _*)
+               (lisp2li call environ))
               (_*
                (error "form special ~S not yet implemented" expr))))
 
