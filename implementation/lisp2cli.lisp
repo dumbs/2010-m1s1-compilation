@@ -154,6 +154,11 @@ Le traitement de catch/throw est similaire, sauf que le pointeur est simplement 
 Cette étape doit s'effectuer après l'expansion de macros, sinon on risque de louper des block / return-from / ... .
 
 ;; Choix d'implémentation des closures :
+Lorsqu'une variable est capturée, on ne peut pas copier directement l'adresse dans le tas de sa valeur pour pouvoir la manipuler,
+car il se peut que l'on doive déplacer la valeur si on souhaite la remplacer par quelque chose de plus gros (par ex. remplacer un nombre par une string).
+On est donc obligé d'avoir un pointeur d'indirection supplémentaire, de taille fixe, qui ne sera pas déplacé.
+Ce pointeur est ce qu'on appellera la closure-cell.
+
 Lorsqu'on rencontre un binding d'une variable (let, labels, lambda, ...), on regarde si elle est capturée à l'intérieur
 du corps du special-form qui effectue la liaison.
 Si c'est le cas, on crée une closure-cell, qui contient un pointeur vers l'endroit où est stockée la vraie valeur de la variable,
@@ -246,8 +251,120 @@ compiler-meval transforme le eval-when en progn si sa situation contient :execut
 - S'occuper du cas du lambda et des autres mot-clés bizarres (ne pas faire de macro-expansion dessus).
 - Dans les autres cas, on transforme récursivement l'expression.
 
-;; TODO : Comportement des variables globales et spéciales
+;; Comportement des variables globales et spéciales
+Lorsqu'une variable est utilisée mais ne correspond à aucune liaison (établie par let, …), cette utilisation fait référence
+à une liaison "globale" de cette variable (autrement dit, la valeur est partagée entre toutes les utilisations sans liaison).
+Par défaut, une variable globale est "unbound", et n'a donc pas de valeur. La lecture d'une variable unbound est une erreur.
+x
+=> erreur
+(defun bar () x)
+(bar)
+=> erreur
+(setq x 3)
+(bar)
+=> 3
 
-;; TODO : Implémentation des variables globales et spéciales
+Lorsqu'une variable est déclarée localement spéciale, avec (declare (special nom-de-variable)) au début d'un defun, d'un let etc.,
+la valeur de la variable est alors la même que la valeur globale.
+Ce comportement spécial s'applique là où la variable est dans la portée lexicale de la forme spéciale englobant le declare (donc uniquement dans le defun, let, …).
+
+(defun baz () y)
+(let ((y 3)) (let ((z 1)) (declare (special y)) (setq y 42) (baz)))
+=> 42 ;; Bien que y soit une liaison lexicale à cause du (let ((y 3)), le (special y) le transforme en variable globale.
+y
+=> 42
+
+Si la forme spéciale englobante devait créer une liaison lecicale pour cette variable, elle ne le fait pas, mais à la place,
+ - la valeur globale d'origine de la variable est sauvegardée,
+ - sa valeur globale est modifiée avec la nouvelle valeur (paramètre effectif pour un defun, valeur de droite pour un let, ...)
+ - La variable devient boundp si elle ne l'était pas déjà
+ - le corps est exécuté, avec la variable partageant sa valeur avec la varaible globale
+ - la valeur d'origine de la variable globale est restaurée.
+ - Si la valeur était unbound, elle redevient unbound.
+
+(defun quux () (print (boundp 'w)) w)
+(boundp 'w)
+=> NIL
+(quux)
+=> erreur
+(let ((w 3)) (declare (special w)) (print (boundp 'w)) (quux))
+=> T ;; boundp
+=> T ;; boundp
+=> 3
+(boundp 'w)
+(quux)
+=> erreur ;; La valeur est bien restaurée.
+
+Lorsqu'on effectue un (defvar var val), var devient globalement spéciale : toutes les utilisations de var pointent vers la même valeur,
+y compris les utilisations effectuées avant le defvar.
+(defun foo1 () var)
+(defun foo2 () (let ((var 4)) (print var) (foo1)))
+var
+=> erreur
+(foo1)
+=> erreur
+(foo2)
+=> 4
+=> erreur
+(defvar var 123)
+var
+=> 123
+(foo1)
+=> 123
+(foo2)
+=> 4
+=> 4
+
+Lors du defvar, si la variable est boundp, sa valeur était conservée, sinon sa valeur globale devient la valeur spécifiée par le defvar.
+Notemment, si le defvar apparaît à l'intérieur d'un let-special qui rend la variable boundp locallement, sa valeur globale sera restaurée à unbound à la sortie du let.
+(defun get-1 () not-boundp)
+(defun get-2 () is-boundp)
+(defun get-3 () locally-boundp)
+(defun getlet-1 () (let ((not-boundp 123))     (get-1)))
+(defun getlet-2 () (let ((is-boundp 123))      (get-2)))
+(defun getlet-3 () (let ((locally-boundp 123)) (get-3)))
+(setq is-boundp 42)
+(get-1)    => error ;; not-boundp
+(get-2)    => 42    ;; is-boundp
+(get-3)    => error ;; locally-boundp
+(getlet-1) => error ;; not-boundp
+(getlet-2) => 42    ;; is-boundp
+(getlet-3) => error ;; locally-boundp
+
+(defvar not-boundp 3)
+(defvar is-boundp  3)
+(let ((locally-boundp 42))
+  (declare (special locally-boundp))
+  (defvar locally-boundp 3))
+(get-1)    => 3     ;; not-boundp
+(get-2)    => 42    ;; is-boundp
+(get-3)    => error ;; locally-boundp
+;; La variable est maintenant spéciale partout :
+(getlet-1) => 123   ;; not-boundp
+(getlet-2) => 123   ;; is-boundp
+(getlet-3) => 123   ;; locally-boundp
+
+;; Implémentation des variables globales et spéciales
+
+Pour les mêmes raisons de santé d'esprit et d'efficacité et d'alignement des planètes que pour la redéclaration de fonctions en macros, nous ne supporterons pas la redéclaration
+de variables non spéciales en spéciales. Ainsi, si un defvar apparaît *après* des utilisations non spéciales de la variable, ces utilisations resteront non spéciales.
+
+Lorsqu'une variable est détectée comme étant spéciale (soit globalement, avec defvar, soit localement, avec declare), sa valeur est stockée dans une global-cell,
+qui ressemble comme deux goutes d'eau à une closure-cell, et toutes ces utilisations passent par la globla-cell, comme pour les variables capturées.
+On est obligé d'avoir ce niveau d'indirection pour les mêmes raisons que pour le closure-cell.
+La différence avec une closure-cell est qu'il n'y a qu'une seule global-cell par variable, qui est créée à la compilation.
+De même, l'utilisation globale d'une variable de manière globale est remplacée par une référence à sa global-cell.
+De plus, les formes spéciales qui devaient créer une liaison locale sont transformées comme suit :
+(let ((x 3)) (declare (special x)) (setq x 42) x)
+Est transformé en :
+== En-tête
+[global-cell x]
+#<unbound>
+== Code
+[push [get-global-cell-value x]]
+[set-global-cell-value x 3]
+[set-global-cell-value x 42]
+[get-global-cell-value x]
+[set-global-cell-value x [pop]]
 
 |#
