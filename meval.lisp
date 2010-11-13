@@ -110,12 +110,6 @@ d’arguments dans un certain environnement."
         (setf (aref sub-env (second place))
               (meval val env)))))
 
-(defun make-closure (lmbd env)
-  `(,lmbd . ,env))
-
-(defun meval-closure (clos args)
-  (meval-lambda (cadr clos) args (cddr clos)))
-
 (defun make-empty-list (size)
   (if (= size 0)
       nil
@@ -148,16 +142,14 @@ d’arguments dans un certain environnement."
                (let ((values (meval-args params env)))
                  (meval-lambda (car (get func-name :defun))
                                values
-                               (make-env (length values)
-                                       values
-                                       env))))
+                               (make-env (length values) values env))))
               ((:nil :mcall :macro-name (? (get x :defmacro)) :params _*)
                (let ((values (meval-args params env)))
                  (meval (lisp2li (meval-lambda (car (get macro-name :defmacro))
                                params
-                               (make-env (length values)
-                                         values
-                                         env)) env) env)))
+                               (make-env (length values) values env))
+                                 env)
+                        env)))
               ((:nil :mcall :lambda (:nil :lclosure (? integerp) (? integerp)? _*) :args _*)
                (meval-lambda lambda (meval-args args env) env))
               ((:nil :call :func-name _ :body _*)

@@ -164,7 +164,7 @@ par le compilateur et par l’interpréteur"
    ;; macro meta-definie
    ((get (car expr) :defmacro)
     `(:mcall ,(car expr)
-             ,@(mapcar (lambda (x) (lisp2li x env)) (cdr expr))))
+             ,@(mapcar (lambda (x) `(:const . ,x)) (cdr expr))))
    ;; fonction inconnue
    ((and (not (fboundp (car expr)))
          (not (get (car expr) :defun))
@@ -218,11 +218,16 @@ par le compilateur et par l’interpréteur"
     `(:sapply ,(second expr) ,@(cddr expr)))
    ;; setf
    ((eq 'setf (car expr))
-    (if (symbolp (cadr expr))
-        (let ((cell (assoc (cadr expr) env)))
-          `(:set-var (,(second cell) ,(third cell))
-                     ,(lisp2li (third expr) env)))
-      `(:set-fun ,(caadr expr) ,@(last expr) ,@(cdadr expr))))
+    (cond ((symbolp (cadr expr))
+           (let ((cell (assoc (cadr expr) env)))
+             `(:set-var (,(second cell) ,(third cell))
+                        ,(lisp2li (third expr) env))))
+          ((symbolp (cdadr expr))
+           (let ((cell (assoc (cdadr expr) env)))
+             `(:set-var (,(second cell) ,(third cell))
+                        ,(third expr))))
+          (T
+           `(:set-fun ,(caadr expr) ,@(last expr) ,@(cdadr expr)))))
    ;; setq
    ((eq 'setq (car expr))
     (lisp2li `(setf ,@(cdr expr)) env))
@@ -234,7 +239,6 @@ par le compilateur et par l’interpréteur"
     (cons :const nil))
    ;; macros
    ((macro-function (car expr))
-    (print "macro-function")
     (lisp2li (macroexpand-1 expr) env))
    ;; foctions normales
    ((not (special-operator-p (car expr)))
