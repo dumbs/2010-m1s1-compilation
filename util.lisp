@@ -10,10 +10,10 @@
 ;; (loop ......) lire la doc...
 ;; (subst new old tree) remplace old par new dans tree.
 
-(defmacro aset (k v alist)
+(defmacro assoc-set (k v alist &optional (compare #'eq))
   `(let ((my-k ,k)
          (my-v ,v))
-     (let ((association (assoc my-k ,alist)))
+     (let ((association (assoc my-k ,alist :key ,compare)))
        (if association
            (setf (cdr association) my-v)
            (push (cons my-k my-v) ,alist)))))
@@ -70,11 +70,6 @@
            collect line
            finally (close fd)))))
 
-(defun propper-list-p (l)
-  (or (null l)
-	  (and (consp l)
-		   (propper-list-p (cdr l)))))
-
 (defun m-macroexpand-1 (macro)
   ;; TODO : not implemented yet m-macroexpand-1
   macro ;; Pour éviter le unused variable.
@@ -125,3 +120,53 @@
     (t
      (warn "copy-all : Je ne sais pas copier ~w" data)
      data)))
+
+(defun flatten (lst &optional rest result)
+  (if (endp lst)
+      (if (endp rest)
+          (reverse result)
+          (flatten (car rest) (cdr rest) result))
+      (if (listp (car lst))
+          (flatten (car lst) (cons (cdr lst) rest) result)
+          (flatten (cdr lst) rest (cons (car lst) result)))))
+
+(defun mapcar-append (append function &rest lists)
+  (cond ((null lists)
+         append)
+        ((member nil lists)
+         append)
+        (t
+         (cons (apply function (mapcar #'car lists))
+               (apply #'mapcar-append append function (mapcar #'cdr lists))))))
+
+(defun reduce* (initial function &rest lists)
+  (if (or (null lists) (member nil lists))
+      initial
+      (apply #'reduce* (apply function initial (mapcar #'car lists))
+             function
+             (mapcar #'cdr lists))))
+
+(defun assoc* (item compare &rest alists)
+  (if (not (functionp compare))
+      (apply #'assoc* item #'eq compare alists)
+      (if (endp alists)
+          nil
+          (or (assoc item (car alists) :test compare)
+              (apply #'assoc* item compare (cdr alists))))))
+
+(defun reverse-alist (alist)
+  (mapcar (lambda (x) (cons (car x) (reverse (cdr x))))
+          alist))
+
+(defun group-1 (lst &optional result)
+  "Groupe les éléments d'une lste en fonction de leur premier élément, et renvoie une lste associative"
+  (if (endp lst)
+      result
+      (let ((association (assoc (caar lst) result)))
+        (if association
+            (push (cdar lst) (cdr association))
+            (push (cons (caar lst) (list (cdar lst))) result))
+        (group-1 (cdr lst) result))))
+
+(defun group (lst)
+  (reverse-alist (group-1 lst)))

@@ -101,10 +101,10 @@
 (defun real-run-tests (module-name from)
   (if (second from)
       (progn
-        (format t "~&~%-~{ ~a~}~&    [Déjà vu]~&" (or module-name '("all-tests")))
+        (format t "~&~%-~{ ~w~}~&    [Déjà vu]~&" (or module-name '(all-tests)))
         t)
       (progn
-        (format t "~&~%>~{ ~a~}~&" (or module-name '("all-tests")))
+        (format t "~&~%>~{ ~w~}~&" (or module-name '("all-tests")))
         (setf (second from) t) ;; marquer comme exécuté.
         (let ((nb-fail (count-if-not #'funcall (reverse (fourth from)))))
           (if (= nb-fail 0)
@@ -138,14 +138,6 @@
       (setf (aref (cadr (aref copy-of-foo 2)) 1) (cons 'MODIFIED (random 42)))
       (equalp foo #(a b (1 #(2 4 6) 3) c)))
   t #'booleq)
-
-(deftest (test-unitaire copy-all)
-    (let* ((foo #(a x (1 #(2 4 7) 5) c))
-           (copy-of-foo (copy-all foo)))
-      copy-of-foo
-      (setf (aref (cadr (aref foo 2)) 1) (cons 'MODIFIED (random 42)))
-      (equalp foo #(a x (1 #(2 4 7) 5) c)))
-  nil #'booleq)
 
 ;;; Exemples d'utilisation.
 

@@ -102,7 +102,7 @@ retourne la liste de leurs valeurs"
 d’arguments dans un certain environnement."
   (match (:nil :lclosure :size (? integerp) :rest (? integerp)? :body _*) lclosure
          (meval lclosure
-                (make-env size args env rest))))
+                (make-env size args env (car rest)))))
 
 (defun msetf (place val env)
   (let ((sub-env (get-env-num (first place) env)))
@@ -138,12 +138,12 @@ d’arguments dans un certain environnement."
                (let ((name (meval macro-name env)))
                  (setf (get name :defmacro) closure)
                  name))
-              ((:nil :mcall :func-name (? (get x :defun)) :params _*)
+              ((:nil :mcall :func-name (? $$ (get x :defun)) :params _*)
                (let ((values (meval-args params env)))
                  (meval-lambda (car (get func-name :defun))
                                values
                                (make-env (length values) values env))))
-              ((:nil :mcall :macro-name (? (get x :defmacro)) :params _*)
+              ((:nil :mcall :macro-name (? $$ (get x :defmacro)) :params _*)
                (let ((values (meval-args params env)))
                  (meval (lisp2li (meval-lambda (car (get macro-name :defmacro))
                                params
@@ -193,7 +193,7 @@ d’arguments dans un certain environnement."
 
 (deftest (meval :cvar)
   (meval '(:cvar 1 2) #(#(() 7 8) 4 5 6)) 
-  8)
+  5)
 
 (deftest (meval :call)
   (meval '(:call + (:const . 3) (:cvar 0 1)) #(() 4 5 6))
