@@ -192,20 +192,20 @@ Voici la liste des special-form.
 block                   OK
 catch                   OK
 declare                 -- ?
-eval-when               OK Avant/pendant macro-expansion
-flet                    OK
+eval-when              *OK Avant/pendant macro-expansion
+flet                   *OK
 function                -- ?
 generic-flet            ~~ Non implémenté
 generic-labels          ~~ Non implémenté
 go                      OK
 if                      -- À compiler
-labels                  OK
-let                     OK
-let*                    OK
-macrolet                OK
+labels                 *OK
+let                    *OK
+let*                   *OK
+macrolet               *OK
 multiple-value-call     ~~ Non implémenté
 multiple-value-prog1    ~~ Non implémenté (mais le serait avec une macro)
-progn                   OK (un seul géant qui représente le top-level)
+progn                  *OK (un seul géant qui représente le top-level)
 progv                   ~~ Non implémenté
 quote                   -- À compiler
 return-from             OK
@@ -218,10 +218,10 @@ unwind-protect          -- À compiler (ou bien macro-expansé en termes de "asm
 with-added-methors      ~~ Non implémenté
 
 Les "formes spéciales du compilo" suivantes ont été rajoutées :
-asm
-unwind
-closure
-+ les appels de lambdas nommés.
+asm                     -- À compiler
+unwind                  -- À compiler (ou bien macro-expansé en termes de "asm")
+closure                 -- À compiler
++ les appels de lambdas nommés. -- À compiler
 
 ;; Implémentation des macros et de eval-when
 Lors de la compilation d'un fichier, son top-level est traversé de la manière suivante :
@@ -229,10 +229,14 @@ On crée une instance de compiler-meval, un mini-meval qui renvoie toujours
 un cons de la valeur de retour et de son état, pour qu'on puisse le rappeler.
 compiler-meval transforme le eval-when en progn si sa situation contient :execute, en nil sinon.
 
+NOTE : lorsqu'on rencontre la macro declaim au top-level, la proclamation est prise en compte.
+
 - Si on rencontre EVAL-WHEN,
   - Au top-level,
-    - Si la situation contient :compile-toplevel, le body est évalué dans compiler-meval.
-    - Si la situation contient :load-toplevel, le eval-when est remplacé par son body.
+    - Pour chaque form du body,
+      - Si la situation contient :compile-toplevel, le form est évalué dans compiler-meval.
+      - Si la situation contient :load-toplevel, le form est compilé (après évaluation dans compiler-meval s'il y a lieu).
+      - Lorsqu'un eval-when au top-level contient des eval-when directement sous lui, ils sont traités comme s'ils étaient directement au top-level.
   - Ailleurs
     - Si la situation contient :load-toplevel, le eval-when est remplacé par son body (TODO : À VÉRIVFIER !).
 - Si on rencontre un defmacro

@@ -10,10 +10,10 @@
 ;; (loop ......) lire la doc...
 ;; (subst new old tree) remplace old par new dans tree.
 
-(defmacro aset (k v alist)
+(defmacro aset (k v alist &optional (compare #'eq))
   `(let ((my-k ,k)
          (my-v ,v))
-     (let ((association (assoc my-k ,alist)))
+     (let ((association (assoc my-k ,alist :key ,compare)))
        (if association
            (setf (cdr association) my-v)
            (push (cons my-k my-v) ,alist)))))
@@ -141,3 +141,44 @@
       (if (listp (car lst))
           (flatten (car lst) (cons (cdr lst) rest) result)
           (flatten (cdr lst) rest (cons (car lst) result)))))
+
+(defun mapcar-append (append function &rest lists)
+  (cond ((null lists)
+         append)
+        ((member nil lists)
+         append)
+        (t
+         (cons (apply function (mapcar #'car lists))
+               (apply #'mapcar-append append function (mapcar #'cdr lists))))))
+
+(defun reduce* (initial function &rest lists)
+  (if (or (null lists) (member nil lists))
+      initial
+      (apply #'reduce* (apply function initial (mapcar #'car lists))
+             function
+             (mapcar #'cdr lists))))
+
+(defun assoc* (item compare &rest alists)
+  (if (not (functionp compare))
+      (apply #'assoc* item #'eq compare alists)
+      (if (endp alists)
+          nil
+          (or (assoc item (car alists) :test compare)
+              (apply #'assoc* item compare (cdr alists))))))
+
+(defun group-1 (lst &optional result)
+  "Groupe les éléments d'une lste en fonction de leur premier élément, et renvoie une lste associative"
+  (if (endp lst)
+      result
+      (let ((association (assoc (caar lst) result)))
+        (if association
+            (push (cdar lst) (cdr association))
+            (push (cons (caar lst) (list (cdar lst))) result))
+        (group-1 (cdr lst) result))))
+
+(defun group (lst)
+  (reverse-alist (group-1 lst)))
+
+(defun reverse-alist (alist)
+  (mapcar (lambda (x) (cons (car x) (reverse (cdr x))))
+          alist))

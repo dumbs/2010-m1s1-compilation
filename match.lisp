@@ -16,6 +16,9 @@
 ;; (a . rest)          (and (match a (car expr)) (match rest (cdr expr)))
 ;; ()                  (null expr)
 ;; $                   (and (atom expr) (not (null expr)))
+;; $$                  (symbolp expr)
+;; $k                  (keywordp expr)
+;; $&                  (and (symbolp expr) (member expr '(&optional &rest &key &allow-other-keys &aux)))
 ;; @                   liste propre : (and (listp expr) (match @ (cdr expr)))
 ;; @.                  cons : (consp expr)
 ;; _                   t
@@ -316,7 +319,10 @@
                  (or (when match
                        (let ((match-rest (pattern-match rest (cdr expr))))
                          (when match-rest
-                           (append match match-rest)))) ;; TODO : vérifier qu'on n'a pas besoin d'un make-empty-matches en cas de non-match de sous-trucs. (normalement non)
+                           ;; Attention, les trois lignes suivantes ont été modifiées sans que je comprenne vraiement les manipulations...
+                           (append-car-cdr-not-nil
+                            (append-captures match (cons (acons-capture capture-name expr (make-empty-matches pattern))
+                                                         match-rest))))))
                      (let ((match-only-rest (pattern-match rest expr)))
                        (when match-only-rest
                          (append (acons-capture capture-name expr (make-empty-matches pattern))
@@ -350,6 +356,18 @@
               ((eq '$ pattern)
                (when (and (atom expr)
                           (not (null expr)))
+                 (acons-capture capture-name expr nil)))
+              ;; $$
+              ((eq '$$ pattern)
+               (when (symbolp expr)
+                 (acons-capture capture-name expr nil)))
+              ;; $k
+              ((eq '$k pattern)
+               (when (keywordp expr)
+                 (acons-capture capture-name expr nil)))
+              ;; $&
+              ((eq '$& pattern)
+               (when (and (symbolp expr) (member expr '(&optional &rest &key &allow-other-keys &aux)))
                  (acons-capture capture-name expr nil)))
               ;; @
               ((eq '@ pattern)
@@ -391,7 +409,8 @@
                                  capture-names)
                      ;; "utilisation" des variables pour éviter les warning unused variable.
                      ,@capture-names
-                     ,@body))
+                     (labels ((else () ,else-clause))
+                       ,@body)))
                  (if capture-names
                      `((remove nil ,result-sym :key #'car))
                      `(t)))
@@ -518,6 +537,117 @@
              (setf else-rule else))
            (defun ,add-pattern-function (func)
              (setf rules (append rules (list func))))))))
+
+;; Version de match-automaton avec loop :
+;; `(loop
+;;     with ,state = ',initial-state
+;;     with accumulator = nil
+;;     for step = (cond-match ...)
+;;     when (eq state 'accept)
+;;       return (reverse accumulator)
+;;     when (eq state 'reject)
+;;       return nil
+;;     do (setq state (car step)))
+
+#|
+Syntaxe du match-automaton :
+(match-automaton expression initial-state
+                 (stateX stateY [pattern] [code])
+                 (stateX stateY [pattern] [code])
+                 ...)
+Si pattern n'est pas fourni, alors stateY est soit accept ou reject, pour indiquer qu'on accepte ou rejette l'expression si on arrive sur cet état à la fin.
+Si pattern est fourni, cela signifie «Si l'élément courant de l'expression matche avec ce pattern, passer à l'élément suivant et aller dans l'état stateY.».
+Lorsque l'expression est acceptée, pattern-match renvoie une liste associative ((state1 élément-1 ... élément-n) (state2 e1..eN) ...)
+Les éléments à droite de chaque nom d'état sont obtenus de la manière suivante :
+  Si code est fourni, il est exécuté, et sa valeur de retour est ajoutée à la fin de la liste correspondant à stateX (l'état de départ).
+  Si code n'est pas fourni, rien n'est ajouté à cette liste.
+Lorsqu'on est sur un certain état, chaque transition partant de cet état est testée dans l'ordre d'écriture, et la première qui matche est choisie.
+
+De plus, il est possible de spécifier des clauses spéciales, au lieu des (stateX stateY [pattern] [code]) :
+ - (initial code ...), qui exécute le code avant de démarrer (pas très utile...)
+ - (accept code ...), qui exécute le code dans le cas où l'expression est acceptée. La valeur renvoyée par ce code sera la valeur de retour de match-automaton.
+                      Dans cette clause, on peut accéder à la valeur qui aurait dû être renvoyée via la variable return-value.
+ - (reject code ...), qui exécute le code dans le cas où l'expression est rejetée. La valeur renvoyée par ce code sera la valeur de retour de match-automaton.
+                      Dans cette clause, le dernier élément considéré est stocké dans last-element.
+                      Cet élément est celui qui a causé le reject, ou nil si on est au début de la liste, ou nil si on est à la fin de la liste sans accept.
+                      ;;De même, le dernier état courant est dans last-state.
+
+Il peut y avoir plusieurs initial, accept et reject, auquel cas tous sont exécutés dans l'ordre d'écriture, et sont concaténés dans un progn,
+donc seule la valeur de la dernière expression de la dernière clause est renvoyée.
+|#
+
+;; ATTENTION, par excès de flemme, match-automaton ne supporte pas la syntax
+;; (macro :var atom expr code)
+;; ATTENTION, j'ai renoncé à rendre ce code lisible.
+(defun match--grouped-transition-to-progns (grouped-transition)
+  ;; On remet to, pattern et code bout à bout (c'est tout du code)
+  (mapcar (lambda (x) `(progn ,(car x) ,@(cadr x) ,@(caddr x)))
+          (cdr grouped-transition)))
+
+(defmacro match-automaton (expr initial-state &rest rules)
+  (match ((:from $$ :to _ :pattern _? :code _*) *) rules
+         (let ((storage (mapcar (lambda (s) (cons s (make-symbol (format nil "STORAGE-~a" (string s))))) (remove-duplicates from)))
+               (expr-sym (make-symbol "EXPR"))
+               (block-sym (make-symbol "BLOCK"))
+               (grouped-transitions (group (mapcar #'list from to pattern code)))
+               (last-state-sym (make-symbol "LAST-STATE"))
+               (last-element-sym (make-symbol "LAST-ELEMENT")))
+           `(let (,@(mapcar (lambda (s) `(,(cdr s) nil)) storage)
+                  (,expr-sym ,expr)
+                  (,last-state-sym 'initial)
+                  (,last-element-sym nil))
+              (block ,block-sym
+                (tagbody
+                 initial
+                   (progn ,(match--grouped-transition-to-progns (assoc 'initial grouped-transitions)))
+                   (go ,initial-state)
+                 accept
+                   (let ((return-value (list ,@(mapcar (lambda (s) `(cons ',(car s) (reverse ,(cdr s)))) storage))))
+                     return-value
+                     (return-from ,block-sym
+                       (progn return-value
+                              ,@(match--grouped-transition-to-progns (assoc 'accept grouped-transitions)))))
+                 reject
+                   (return-from ,block-sym
+                     (let ((last-element ,last-element-sym)
+                           (last-state ,last-state-sym))
+                       last-element
+                       last-state
+                       (progn nil
+                              ,@(match--grouped-transition-to-progns (assoc 'reject grouped-transitions)))))
+                   ;; On va générer ceci :
+                   ;; state1
+                   ;;   (cond-match ... (go state2) ... (go state1) ...)
+                   ;; state2
+                   ;;   (cond-match ... (go staten) ... (go reject) ...)
+                   ;; staten
+                   ;;   (cond-match ... (go accept) ... (go state1) ...)))
+                   ,@(loop
+                        for (from . transitions) in grouped-transitions
+                        unless (member from '(initial accept reject))
+                          collect from
+                          and collect `(setq ,last-state-sym ',from)
+                          and collect `(setq ,last-element-sym (car ,expr-sym))
+                          and collect `(print ',from)
+                          and if (member nil transitions :key #'second)
+                            collect `(when (endp ,expr-sym) (print 'auto-accept) (go accept)) ;; TODO : aller à l'état désigné par la dernière transition "finale". + syntaxe (stateX code) => exécute le code à chaque fois qu'on rentre dans stateX.
+                          else
+                            collect `(when (endp ,expr-sym) (print 'auto-reject) (go reject))
+                          end
+                          and collect `(cond-match (car ,expr-sym)
+                                                   ,@(loop
+                                                        for (to pattern code) in transitions
+                                                        when pattern
+                                                          if code
+                                                            collect `(,@pattern
+                                                                    (push (progn ,@code) ,(cdr (assoc from storage)))
+                                                                    (setq ,expr-sym (cdr ,expr-sym))
+                                                                    (go ,to))
+                                                          else
+                                                            collect `(,@pattern
+                                                                      (setq ,expr-sym (cdr ,expr-sym))
+                                                                      (go ,to)))
+                                                   (_ (go reject))))))))))
 
 (load "test-unitaire")
 (erase-tests match)
