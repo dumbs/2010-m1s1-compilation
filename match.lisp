@@ -53,7 +53,7 @@
              ,(if (second pattern)
                   (let ((?-clause (cdr (third pattern)))
                         (type '_))
-                    (when (and (consp ?-clause) (member (car ?-clause) '(nil _ $ @ @.)))
+                    (when (and (consp ?-clause) (member (car ?-clause) '(nil _ $ $$ $k $& @ @.)))
                       (setq type (car ?-clause))
                       (setq ?-clause (cdr ?-clause)))
                     ;; TODO : (? or foo (? _ and bar baz) (? $ and quux))

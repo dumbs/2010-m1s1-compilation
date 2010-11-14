@@ -101,10 +101,10 @@
 (defun real-run-tests (module-name from)
   (if (second from)
       (progn
-        (format t "~&~%-~{ ~a~}~&    [Déjà vu]~&" (or module-name '("all-tests")))
+        (format t "~&~%-~{ ~w~}~&    [Déjà vu]~&" (or module-name '(all-tests)))
         t)
       (progn
-        (format t "~&~%>~{ ~a~}~&" (or module-name '("all-tests")))
+        (format t "~&~%>~{ ~w~}~&" (or module-name '("all-tests")))
         (setf (second from) t) ;; marquer comme exécuté.
         (let ((nb-fail (count-if-not #'funcall (reverse (fourth from)))))
           (if (= nb-fail 0)
