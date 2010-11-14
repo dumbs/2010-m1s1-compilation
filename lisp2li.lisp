@@ -27,7 +27,7 @@
            . ,(make-stat-env-optional (cdr params) env (+ 1 position) num-env)))))
 
 (defun env-depth (env)
-  (+ (or (second (first env)) -1) 1))
+  (or (cadar (last env)) 0))
 
 (defun recalculation (env)
   (cond ((endp env)
@@ -231,6 +231,15 @@ par le compilateur et par l’interpréteur"
    ;; setq
    ((eq 'setq (car expr))
     (lisp2li `(setf ,@(cdr expr)) env))
+   ;; defvar
+   ((eq 'defvar (car expr))
+    (let ((var `(,(cadr expr)
+                  ,(if (eq nil env) 0 (cadar (last env)))
+                  ,(if (eq nil env) 1 (+ (caddar (last env)) 1)))))
+      (setf env (append env `(,var)))
+      (print env)
+      `(:set-var (,(second var) ,(third var))
+               ,(third expr))))
    ;; progn
    ((eq 'progn (car expr))
     (cons :progn (map-lisp2li (cdr expr) env)))

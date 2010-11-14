@@ -1,4 +1,4 @@
-(setq *print-circle* t)
+;(setq *print-circle* t)
 (load "environnement")
 (load "instructions")
 (load "lisp2li")
