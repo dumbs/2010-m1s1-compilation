@@ -70,11 +70,6 @@
            collect line
            finally (close fd)))))
 
-(defun propper-list-p (l)
-  (or (null l)
-	  (and (consp l)
-		   (propper-list-p (cdr l)))))
-
 (defun m-macroexpand-1 (macro)
   ;; TODO : not implemented yet m-macroexpand-1
   macro ;; Pour éviter le unused variable.
@@ -166,6 +161,10 @@
           (or (assoc item (car alists) :test compare)
               (apply #'assoc* item compare (cdr alists))))))
 
+(defun reverse-alist (alist)
+  (mapcar (lambda (x) (cons (car x) (reverse (cdr x))))
+          alist))
+
 (defun group-1 (lst &optional result)
   "Groupe les éléments d'une lste en fonction de leur premier élément, et renvoie une lste associative"
   (if (endp lst)
@@ -178,7 +177,3 @@
 
 (defun group (lst)
   (reverse-alist (group-1 lst)))
-
-(defun reverse-alist (alist)
-  (mapcar (lambda (x) (cons (car x) (reverse (cdr x))))
-          alist))

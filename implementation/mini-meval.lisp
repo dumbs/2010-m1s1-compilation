@@ -46,6 +46,7 @@
 ;; (slice-up-lambda-list '(a b &rest))
 ;; (slice-up-lambda-list '(a b))
 
+(declaim (ftype function mini-meval)) ;; récursion mutuelle mini-meval-params / mini-meval
 (defun mini-meval-params (params global local fixed optional rest key other aux)
   (if fixed
       (if (endp params)

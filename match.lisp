@@ -393,28 +393,40 @@
        pattern))))
 
 (defmacro real-match (pattern expr body &optional else-clause)
-  (let* ((result-sym (make-symbol "result"))
-         (pattern-sym (make-symbol "pattern"))
+  (let* ((result-sym (make-symbol "RESULT"))
+         (result-of-if-sym (make-symbol "RESULT-OF-IF"))
+         (pattern-sym (make-symbol "PATTERN"))
+         (else-sym (make-symbol "ELSE"))
          (pattern-preproc (pattern-match-preprocess-capture
                            (pattern-match-preprocess-multi
                             pattern)))
          (capture-names (mapcar #'car (make-empty-matches pattern-preproc))))
     `(let* ((,pattern-sym (pattern-match-do-lambdas ,pattern-preproc))
-            (,result-sym (pattern-match ,pattern-sym ,expr)))
-       ;; Filtrage des captures nommées nil.
-       (if ,result-sym
-           ,@(if body
-                 `((let ,(mapcar (lambda (x)
-                                   `(,x (cdr (assoc ',x ,result-sym))))
-                                 capture-names)
-                     ;; "utilisation" des variables pour éviter les warning unused variable.
-                     ,@capture-names
-                     (labels ((else () ,else-clause))
-                       ,@body)))
-                 (if capture-names
-                     `((remove nil ,result-sym :key #'car))
-                     `(t)))
-           ,else-clause))))
+            (,result-sym (pattern-match ,pattern-sym ,expr))
+            (,result-of-if-sym
+             (if ,result-sym
+                 ;; Si le match a été effectué avec succès
+                 ,@(if body
+                       ;; Si on a un body
+                       ;; On bind les variables correspondant aux noms de capture
+                       `((let ,(mapcar (lambda (x) `(,x (cdr (assoc ',x ,result-sym))))
+                                       capture-names)
+                           ;; "utilisation" des variables pour éviter les warning unused variable.
+                           ,@capture-names
+                           ;; On définit la fonction "else" qui produit le "code secret" permettant d'exécuter le else.
+                           (labels ((else () ',else-sym))
+                             ;; On exécute le body
+                             ,@body)))
+                       ;; S'il n'y a pas de body, on renvoie l'alist des captures s'il y en a ou T sinon.
+                       (if capture-names
+                           `((remove nil ,result-sym :key #'car))
+                           `(t)))
+                 ;; Si on ne match pas, on renvoie le "code secret" permettant d'exécuter le else.
+                 ',else-sym)))
+       ;; Si le résultat est le "code secret" du else, on fait le else, sinon on renvoie le résultat
+       (if (eq ,result-of-if-sym ',else-sym)
+           ,else-clause
+           ,result-of-if-sym))))
 
 (defmacro match (pattern expr &rest body)
   (if (keywordp pattern)
