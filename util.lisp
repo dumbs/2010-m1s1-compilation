@@ -10,7 +10,7 @@
 ;; (loop ......) lire la doc...
 ;; (subst new old tree) remplace old par new dans tree.
 
-(defmacro aset (k v alist &optional (compare #'eq))
+(defmacro assoc-set (k v alist &optional (compare #'eq))
   `(let ((my-k ,k)
          (my-v ,v))
      (let ((association (assoc my-k ,alist :key ,compare)))

@@ -141,7 +141,7 @@ Mini-meval sera appellé sur des morceaux spécifiques du fichier source. Il fau
                 ;; On fait un assoc / setf dans new-bindings, qui ne contient que les fonctions qu'on vient juste d'ajouter, pour éviter
                 ;; le risque inexistant de faire une mutation dans etat-local.
                 ;; TODO : vérifier que ça marche.
-                (aset `(,name 'function)
+                (assoc-set `(,name 'function)
                       (mini-meval `(lambda ,lambda-list ,@fbody) new-etat-local)
                       new-bindings
                       #'equal))
@@ -194,19 +194,19 @@ Mini-meval sera appellé sur des morceaux spécifiques du fichier source. Il fau
                     etat-global
                     (mini-meval-get-params-from-real etat-global etat-local sliced-lambda-list effective-parameters)))))
    ((defun :name $ :lambda-list @ :body _*)
-    (aset `(,name 'function)
+    (assoc-set `(,name 'function)
           (mini-meval `(lambda ,lambda-list ,@body) etat-global etat-local)
           etat-global
           #'equal)
     name)
    ((defmacro :name $ :lambda-list @ :body _*)
-    (aset `(,name 'macro)
+    (assoc-set `(,name 'macro)
           (mini-meval `(lambda ,lambda-list ,@body) etat-global etat-local)
           etat-global
           #'equal)
     name)
    ((defvar :name $ :value _)
-    (aset `(,name 'variable)
+    (assoc-set `(,name 'variable)
           (mini-meval value etat-global etat-local)
           etat-global
           #'equal)
