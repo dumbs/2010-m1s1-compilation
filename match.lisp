@@ -640,11 +640,10 @@ donc seule la valeur de la dernière expression de la dernière clause est renvo
                           collect from
                           and collect `(setq ,last-state-sym ',from)
                           and collect `(setq ,last-element-sym (car ,expr-sym))
-                          and collect `(print ',from)
                           and if (member nil transitions :key #'second)
-                            collect `(when (endp ,expr-sym) (print 'auto-accept) (go accept)) ;; TODO : aller à l'état désigné par la dernière transition "finale". + syntaxe (stateX code) => exécute le code à chaque fois qu'on rentre dans stateX.
+                            collect `(when (endp ,expr-sym) (go accept)) ;; TODO : aller à l'état désigné par la dernière transition "finale". + syntaxe (stateX code) => exécute le code à chaque fois qu'on rentre dans stateX.
                           else
-                            collect `(when (endp ,expr-sym) (print 'auto-reject) (go reject))
+                            collect `(when (endp ,expr-sym) (go reject))
                           end
                           and collect `(cond-match (car ,expr-sym)
                                                    ,@(loop

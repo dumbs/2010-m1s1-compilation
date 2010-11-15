@@ -19,6 +19,17 @@
 (defun test-get-variables  (module) (third  (test-get-module module)))
 (defun test-get-tests      (module) (fourth (test-get-module module)))
 
+(defun test-collect-down-tree (fn module &optional (from all-tests))
+  (unless (listp module) (setq module (list module)))
+  (if (endp module)
+      (cons (funcall fn from) nil)
+      (cons (funcall fn from)
+            (test-collect-down-tree fn (cdr module)
+                                    (cdr (assoc (car module) (car from)))))))
+
+(defun test-get-variables-and-above (module &optional (from all-tests))
+  (apply #'append (mapcar #'reverse (test-collect-down-tree #'third module from))))
+
 (defun test-set-executed (from &optional (value t))
   (setf (second from) value))
 
@@ -51,7 +62,7 @@
   `(test-add-test
     ',module
     (lambda ()
-      (let* ((vars (test-get-variables ',module))
+      (let* ((vars (test-get-variables-and-above ',module))
              (_test ',test)
              (_expected ',expected)
              (_compare ,compare)
@@ -104,7 +115,7 @@
         (format t "~&~%-~{ ~w~}~&    [Déjà vu]~&" (or module-name '(all-tests)))
         t)
       (progn
-        (format t "~&~%>~{ ~w~}~&" (or module-name '("all-tests")))
+        (format t "~&~%>~{ ~w~}~&" (or module-name '(all-tests)))
         (setf (second from) t) ;; marquer comme exécuté.
         (let ((nb-fail (count-if-not #'funcall (reverse (fourth from)))))
           (if (= nb-fail 0)
@@ -125,6 +136,27 @@
          (progn (format t "~a tests passed sucessfully." run-tests-counter)
                 t)
          nil)))
+
+(defun count-nb-tests (from)
+  (apply #'+
+         (length (fourth from))
+         (mapcar (lambda (x) (count-nb-tests (cdr x))) (car from))))
+
+(defun real-show-tests (module-name from)
+  (format t "~&~4@<~d~> ~4@<~d~> >~{ ~w~}~&"
+                        (length (fourth from))
+                        (count-nb-tests from)
+                        (or module-name '(all-tests)))
+  (mapcar (lambda (x) (real-show-tests (append module-name (list (car x))) (cdr x)))
+          (first from))
+  nil)
+
+(defmacro show-tests (&optional module)
+  (unless (listp module) (setq module (list module)))
+  `(let ((mod (test-get-module ',module)))
+     (real-show-tests ',module mod)
+     (format t "~a tests." (count-nb-tests mod))
+     t))
 
 (defmacro erase-tests (&optional module)
   (unless (listp module) (setq module (list module)))
