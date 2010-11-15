@@ -42,7 +42,7 @@
                    (reject (error "slice-up-lambda-list : ~w ne peut être ici." last-element))))
 
 ;; Exemples :
-;; (slice-up-lambda-list '(a b &optional u &rest c &key ((:foo bar)) :quux (:baz 'glop) &aux x))
+;; (slice-up-lambda-list '(a b &optional u &rest c &key ((:foo bar)) :quux (:baz 'glop) &aux (x 1) (y (+ x 2))))
 ;; (slice-up-lambda-list '(a b &rest))
 ;; (slice-up-lambda-list '(a b))
 
@@ -65,7 +65,7 @@
             (mini-meval-params (cdr params) global new-local-2 nil (cdr optional) rest key other aux))
           (if rest
               (mini-meval-params params global (acons `(,(car rest) . variable) params local) nil nil nil key other aux)
-              ;; TODO : finir d'implémenter &key &allow-other-keys &aux (et relire CLTL).
+              ;; TODO : finir d'implémenter &key &allow-other-keys &aux &rest (et relire CLTL).
               local))))
 ;              (if key
 ;                  (let* ((keyword (first (car key)))
@@ -238,6 +238,12 @@ Mini-meval sera appellé sur des morceaux spécifiques du fichier source. Il fau
     str)
    (()
     nil)))
+
+(defun push-functions (etat-global functions)
+  (cons nil (mapcar-append (cdr etat-global) (lambda (x) `((,x .  function) . ,(fdefinition x))) functions)))
+
+(defmacro etat-global-fn (&rest functions)
+  `(push-functions '(nil) ',functions))
 
 (load "test-unitaire")
 (erase-tests mini-meval)
