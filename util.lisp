@@ -13,7 +13,7 @@
 (defmacro assoc-set (k v alist &optional (compare #'eq))
   `(let ((my-k ,k)
          (my-v ,v))
-     (let ((association (assoc my-k ,alist :key ,compare)))
+     (let ((association (assoc my-k ,alist :test ,compare)))
        (if association
            (setf (cdr association) my-v)
            (push (cons my-k my-v) ,alist)))))
@@ -109,13 +109,7 @@
        res))
     ((stringp data)
      (copy-seq data))
-    ((null data)
-     nil)
-    ((symbolp data)
-     data)
-    ((numberp data)
-     data)
-    ((characterp data)
+    ((or (null data) (symbolp data) (numberp data) (characterp data) (functionp data))
      data)
     (t
      (warn "copy-all : Je ne sais pas copier ~w" data)
