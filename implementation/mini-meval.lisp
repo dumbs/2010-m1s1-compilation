@@ -1,6 +1,34 @@
 (load "match")
 (load "util")
 
+;; TODO (dans mini-meval et/ou compilateur) :
+;; - match-automaton(tagbody+block)
+;; - declaim
+;; - format
+;; - ` (quasiquote)
+;; - setf (écrire la macro)
+;; - fdefinition, funcctionp, …
+;; - symbolp, keywordp, keywords non mutables + nil et t, intern, make-symbol
+;; - car / cdr, replaca replacad, cons, list (fonction), listp, consp, atom, null (ou eq nil), …
+;; - and / or (macros => if)
+;; - &rest
+;; - eq (vérifier qu'on préserve bien l'égalité de pointeurs là où il faut) / = / eql / equal / equalp
+;; - load / open / read / close
+;; - defvar (gestion correcte des variables spéciales)
+;; - loop
+;; - dolist / dotimes
+;; - array support (array-total-size, row-major-aref, copy-seq)
+;; - string support (char=, map, string (symbol => string), format, print)
+;; - warn
+;; - coder un reverse rapide.
+;; - transformation de la récursion terminale.
+
+;; - vérifier qu'on a pas transformé certaines fonctions en formes spéciales (il faut qu'on puisse toujours les récupérer avec #').
+
+;; cell (un seul pointeur, transparent (y compris pour le type),
+;; avec trois fonctions spéciales pour le get / set / tester le type),
+;; sera utilisé pour les closures et les variables spéciales.
+
 (defun slice-up-lambda-list (lambda-list)
   (match-automaton lambda-list fixed
                    (fixed    accept)
@@ -128,11 +156,11 @@ Mini-meval sera appellé sur des morceaux spécifiques du fichier source. Il fau
         (mini-meval body etat-global etat-local)
         nil))
    ((flet ((:name $ :lambda-list @ :fbody _*)*) :body _*)
-    (mini-meval `(progn ,body)
+    (mini-meval `(progn ,@body)
                 etat-global
                 (reduce* etat-local (lambda (new-etat-local name lambda-list fbody)
                                       (acons `(,name . function)
-                                             (mini-meval `(lamdba ,lambda-list ,@fbody) etat-global etat-local)
+                                             (mini-meval `(lambda ,lambda-list ,@fbody) etat-global etat-local)
                                              new-etat-local))
                          name lambda-list fbody)))
    ((labels ((:name $ :lambda-list @ :fbody _*)*) :body _*)
@@ -143,10 +171,8 @@ Mini-meval sera appellé sur des morceaux spécifiques du fichier source. Il fau
                 ;; On fait un assoc / setf dans new-bindings, qui ne contient que les fonctions qu'on vient juste d'ajouter, pour éviter
                 ;; le risque inexistant de faire une mutation dans etat-local.
                 ;; TODO : vérifier que ça marche.
-                (assoc-set `(,name . function)
-                      (mini-meval `(lambda ,lambda-list ,@fbody) new-etat-local)
-                      new-bindings
-                      #'equal))
+                (setf (cdr (assoc `(,name . function) new-bindings :test #'equal))
+                      (mini-meval `(lambda ,lambda-list ,@fbody) etat-global new-etat-local)))
               name lambda-list fbody)
       (mini-meval `(progn ,@body) etat-global new-etat-local)))
    ((let ((:name $ :value _)*) :body _*)
@@ -213,8 +239,29 @@ Mini-meval sera appellé sur des morceaux spécifiques du fichier source. Il fau
           (cdr etat-global)
           #'equal)
     name)
-   ((setf/setq)
-    )
+   ((setq :name $ :value _)
+    (let ((definition (assoc* `(,name . variable) #'equal etat-local (cdr etat-global))))
+      (if definition
+          (let ((real-value (mini-meval value etat-global etat-local)))
+            (setf (cdr definition) real-value)
+            real-value)
+          (mini-meval `(defvar ,name ,value) etat-global etat-local))))
+   ((function :name $$)
+    (let ((definition (assoc* `(,name . function) #'equal etat-local (cdr etat-global))))
+      (if definition
+          (cdr definition)
+          (error "mini-meval : undefined function : ~w.~&expression = ~w~&etat-global = ~w~&etat-local = ~w" name expr etat-global etat-local))))
+   ((funcall :name _ :params _*)
+    (apply (mini-meval name etat-global etat-local)
+           (mapcar (lambda (x) (mini-meval x etat-global etat-local)) params)))
+   ((apply :name _ :p1 _ :params _*)
+    (let ((fun (mini-meval name etat-global etat-local))
+          (args (mapcar (lambda (x) (mini-meval x etat-global etat-local)) (cons p1 params))))
+      (apply fun (append (butlast args) (car (last args))))))
+   ((declaim _*)
+    nil)
+   ((error :format _ :args _*)
+    (error "mini-meval : fonction error appellée par le code, le message est :~&~w" (apply #'format nil format args)))
    ((quote :val _)
     val)
    #| Traitement des appels de fonction |#
@@ -226,18 +273,18 @@ Mini-meval sera appellé sur des morceaux spécifiques du fichier source. Il fau
       (if definition
           #| - Si on a une fonction de ce nom dans l'état-local ou dans l'etat-global, on l'exécute. |#
           (apply (cdr definition) (mapcar (lambda (x) (mini-meval x etat-global etat-local)) params))
-          (error "mini-meval : undefined function : ~w.~&etat-global = ~w~&etat-local = ~w" name etat-global etat-local))))
-   ((:name . $$)
-    (let ((definition (assoc* `(,name . variable) #'equal etat-local (cdr etat-global))))
-      (if definition
-          (cdr definition)
-          (error "mini-meval : undefined variable : ~w.~&etat-global = ~w~&etat-local = ~w" name etat-global etat-local))))
+          (error "mini-meval : undefined function : ~w.~&expression = ~w~&etat-global = ~w~&etat-local = ~w" name expr etat-global etat-local))))
    ((:num . (? numberp))
     num)
    ((:str . (? stringp))
     str)
    (()
-    nil)))
+    nil)
+   ((:name . $$)
+    (let ((definition (assoc* `(,name . variable) #'equal etat-local (cdr etat-global))))
+      (if definition
+          (cdr definition)
+          (error "mini-meval : undefined variable : ~w.~&expression = ~w~&etat-global = ~w~&etat-local = ~w" name expr etat-global etat-local))))))
 
 (defun push-functions (etat-global functions)
   (cons nil (mapcar-append (cdr etat-global) (lambda (x) `((,x .  function) . ,(fdefinition x))) functions)))
@@ -248,7 +295,7 @@ Mini-meval sera appellé sur des morceaux spécifiques du fichier source. Il fau
 (load "test-unitaire")
 (erase-tests mini-meval)
 
-(deftestvar mini-meval e-global `(nil ((list . function) . ,#'list) ((+ . function) . ,#'+)))
+(deftestvar mini-meval e-global (etat-global-fn list + - cons car cdr < > <= >= =))
 
 (deftest (mini-meval constante)
     (mini-meval 42 e-global nil)
@@ -328,3 +375,111 @@ Mini-meval sera appellé sur des morceaux spécifiques du fichier source. Il fau
                    (qlist 'a 'b)))
                 e-global nil)
   '((a b) ('a 'b) (a b)))
+
+(deftest (mini-meval setf setq)
+    (mini-meval '(list (defvar x 42) x (setq x 123) x) e-global nil)
+  '(x 42 123 123))
+
+(deftest (mini-meval funcall)
+    (mini-meval '(funcall #'+ 1 2 3) e-global nil)
+  '6)
+
+(deftest (mini-meval apply)
+    (mini-meval '(apply #'+ 1 2 (list (+ 1 2) 4)) e-global nil)
+  '10)
+
+(deftest (mini-meval function external)
+    (mini-meval '#'+ e-global nil)
+  #'+)
+
+(deftest (mini-meval function external)
+    (mini-meval '(funcall #'+ 1 2 3) e-global nil)
+  '6)
+
+(deftest (mini-meval function internal)
+    (funcall (mini-meval '(progn (defun foo (x) (+ x 40)) #'foo) e-global nil) 2)
+  '42)
+
+(deftest (mini-meval function internal)
+    (mini-meval '(progn (defun foo (x) (+ x 40)) (funcall #'foo 2)) e-global nil)
+  '42)
+
+(deftest (mini-meval function internal)
+    (mini-meval '(progn (defvar bar (list (lambda (x) (+ x 40)) 1 2 3)) (funcall (car bar) 2)) e-global nil)
+  '42)
+
+(deftest (mini-meval lambda optional)
+    (mini-meval '((lambda (x &optional (y 2)) (list x y)) 1) e-global nil)
+  '(1 2))
+
+(deftest (mini-meval lambda closure single-instance)
+    (mini-meval '(progn
+                  (defvar foo (let ((y 1)) (cons (lambda (x) (list x y)) (lambda (z) (setq y (+ y z)) nil))))
+                  (list (funcall (car foo) 4) (funcall (cdr foo) 5) (funcall (car foo) 4))) e-global nil)
+  '((4 1) nil (4 6)))
+
+(deftest (mini-meval lambda closure multiple-instances)
+    (mini-meval '(progn
+                  (defun counter (&optional (ctr 0)) (cons (lambda () ctr) (lambda (&optional (x 1)) (setq ctr (+ ctr x)) nil)))
+                  (defvar foo0  (counter))
+                  (defvar foo42 (counter 42))
+                  (list
+                   (funcall (car foo0))    ;; show 0
+                   (funcall (car foo42))   ;; show 42
+                   (funcall (cdr foo0))    ;; add 0
+                   (funcall (car foo0))    ;; show 0
+                   (funcall (cdr foo42))   ;; add 42
+                   (funcall (car foo42))   ;; show 42
+                   (funcall (car foo0))    ;; shwo 0
+                   (funcall (car foo42))   ;; show 42
+                   (funcall (cdr foo42) 6) ;; add 42 (+ 6)
+                   (funcall (cdr foo0) 5)  ;; add 0  (+ 5)
+                   (funcall (car foo42))   ;; show 42
+                   (funcall (car foo0))))  ;; show 0
+                e-global nil)
+  '(0 42 nil 1 nil 43 1 43 nil nil 49 6))
+
+(deftest (mini-meval labels)
+    (mini-meval '(list
+                  (defun foo (x) (+ x 1))
+                  (foo 3)
+                  (labels ((foo (x) (+ x 3)))
+                    (foo 3)))
+                e-global nil)
+  '(foo 4 6))
+
+(deftest (mini-meval flet)
+    (mini-meval '(list
+                  (defun foo (x) (+ x 1))
+                  (foo 3)
+                  (flet ((foo (x) (+ x 3)))
+                    (foo 3)))
+                e-global nil)
+  '(foo 4 6))
+
+(deftest (mini-meval labels)
+    (mini-meval '(< 2 3) e-global nil)
+  t)
+ 
+(deftest (mini-meval labels)
+    (mini-meval '(list
+                  (defun fibo (n) (if (< n 2) 1 (+ (fibo (- n 1)) (fibo (- n 2))))) ;; fibo 0 -> 1; 1 -> 1; 2 -> 2 ...
+                  (fibo 5)
+                  (labels ((fibo (n) (if (< n 3) 1 (+ (fibo (- n 1)) (fibo (- n 2)))))) ;; fibo 1 -> 1; 2 -> 1; 3 -> 2 ...
+                    (fibo 5)))
+                e-global nil)
+  '(fibo 8 5))
+
+(deftest (mini-meval flet)
+    (mini-meval '(list
+                  (defun fibo (n) (if (< n 2) 1 (+ (fibo (- n 1)) (fibo (- n 2))))) ;; fibo 0 -> 1; 1 -> 1; 2 -> 2 ...
+                  (fibo 5)
+                  (flet ((fibo (n) (if (< n 3) 1 (+ (fibo (- n 1)) (fibo (- n 2)))))) ;; fibo 1 -> 1; 2 -> 1; 3 -> 2 ...
+                    (fibo 5)))
+                e-global nil)
+  ;; Le flet ne permet pas les définitions récursives, donc le fibo
+  ;; de l'extérieur est appellé après le 1er niveau de récursion.
+  '(fibo 8 8))
+
+(deftest-error (mini-meval error)
+    (mini-meval '(error "Some user error message.") (cons nil nil) nil))

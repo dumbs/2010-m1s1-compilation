@@ -164,3 +164,13 @@
 
 (defun group (lst)
   (reverse-alist (group-1 lst)))
+
+(defun find-what-is-used-1 (expr)
+  (if (propper-list-p expr)
+      (apply #'append (if (symbolp (car expr))
+                          (list (car expr))
+                          nil)
+             (mapcar #'find-what-is-used (cdr expr)))))
+
+(defun find-what-is-used (expr)
+  (remove-duplicates (find-what-is-used-1 expr)))
