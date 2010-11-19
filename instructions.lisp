@@ -6,7 +6,7 @@
 ;;     (send vm set-memory 42 5)
 ;;     (send vm get-register R1)
 ;;     (send vm set-register R2 (send vm get-register 42))
-(defun make-vm (size)
+(defun make-vm (size &optional (debug nil))
   (let* ((memory (make-array size :initial-element 0))
          (registers `(;; Registres généraux.
                       (R0 . 0)
@@ -25,13 +25,16 @@
                       (EQ . nil)
                       (PG . nil)
                       ;; Quand HALT passe à t, on arrête la machine.
-                      (HALT . nil)))
+                      (HALT . nil)
+                      ;; Sert uniquement pour le debug
+                      (DEBUG . debug)))
          (actions `((get-memory . ,(lambda (index) (aref memory index)))
                     (set-memory . ,(lambda (index value) (setf (aref memory index) value)))
                     (get-register-list . ,(lambda () (mapcar #'car registers)))
                     (get-register . ,(lambda (reg) (cdr (assoc reg registers))))
                     (set-register . ,(lambda (reg value) (setf (cdr (assoc reg registers)) value)))
-                    (size-memory . ,(lambda () (length memory))))))
+                    (size-memory . ,(lambda () (length memory)))
+                    (get-debug-mode . ,(lambda () (cdr (assoc 'DEBUG registers)))))))
     (lambda (message &rest params)
       (apply (cdr (assoc message actions)) params))))
 
@@ -44,6 +47,19 @@
 (defun get-register (vm register) (send vm 'get-register register))
 (defun set-register (vm register value) (send vm 'set-register register value))
 (defun size-memory (vm) (send vm 'size-memory))
+(defun get-debug-mode (vm) (send vm 'get-debug-mode))
+
+
+;; TODO : Reste a ajouter la resolution d'etiquette
+(defun load-asm (asm &optional (stack-size 100) (debug nil))
+  (let ((vm (make-vm (+ (length asm) stack-size) debug))
+        (size-vm (+ (length asm) stack-size)))
+    (labels ((load-asm-rec (vm index asm debug)
+                           (if (endp asm)
+                               vm
+                             (progn (set-memory vm index (car asm))
+                                    (load-asm-rec vm (- index 1) (cdr asm) debug)))))
+      (load-asm-rec vm (- size-vm 1) asm debug))))
 
 ;;TODO : Rajouter une fonction resolve pour resoudre les differents modes d'adresssage.
 ;; TODO : Penser a ajouter une table des opcodes
@@ -105,7 +121,6 @@
                       (position1 valeur-2 (get-register-list (make-vm 1)))
                       valeur-2))))
 
-;;TODO : Faire les registres
 (defun dump-vm (vm)
   (dotimes (i (size-memory vm))
     (let ((val (get-memory vm i)))

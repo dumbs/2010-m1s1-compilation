@@ -74,8 +74,8 @@
              ;;   corps-du-test) ;; On évalue le corps du test dans 
              ;;                  ;; un environement où les deftestvar
              ;;                  ;; sont accessibles.
-             (res (eval `(let ,vars ,@(mapcar #'car vars) ,_test)))
-             (exp (eval `(let ,vars ,@(mapcar #'car vars) ,_expected))))
+             (res (eval `(let* ,vars ,@(mapcar #'car vars) ,_test)))
+             (exp (eval `(let* ,vars ,@(mapcar #'car vars) ,_expected))))
         (if (funcall _compare res exp)
             (progn
               (format t "~&    [SUCCESS] ~w~&" ',test)
