@@ -59,33 +59,26 @@
   (if a b (not b)))
 
 (defmacro deftest (module test expected &optional (compare #'equal))
-  `(test-add-test
-    ',module
-    (lambda ()
-      (let* ((vars (test-get-variables-and-above ',module))
-             (_test ',test)
-             (_expected ',expected)
-             (_compare ,compare)
-             ;; Les "eval" ci-dessous exécutent :
-             ;; (let ((var1 val1) (var2 val2) ...) ;; On définit les
-             ;;                                    ;; variables de deftestvar.
-             ;;   var1 var2 ... ;; On "utilise" les variables pour
-             ;;                 ;; éviter le unused variable warning
-             ;;   corps-du-test) ;; On évalue le corps du test dans 
-             ;;                  ;; un environement où les deftestvar
-             ;;                  ;; sont accessibles.
-             (res (eval `(let* ,vars ,@(mapcar #'car vars) ,_test)))
-             (exp (eval `(let* ,vars ,@(mapcar #'car vars) ,_expected))))
-        (if (funcall _compare res exp)
-            (progn
-              (format t "~&    [SUCCESS] ~w~&" ',test)
-              t)
-            (progn
-              (format t "~&    [FAILURE] Test       : ~w~&" ',test)
-              (format t "~&              got        : ~w~&" res)
-              (format t "~&              expected   : ~w~&" exp)
-              (format t "~&              comparison : ~w~&" _compare)
-              nil))))))
+  (let ((vars (test-get-variables-and-above module)))
+    `(test-add-test
+      ',module
+      (lambda ()
+        (let* ((state-1 (make-random-state))
+               (state-2 (make-random-state state-1))
+               (res (labels ((random-test (n) (random n state-1)))
+                      (let* ,vars ,@(mapcar #'car vars) ,test)))
+               (exp (labels ((random-test (n) (random n state-2)))
+                      (let* ,vars ,@(mapcar #'car vars) ,expected))))
+          (if (funcall ,compare res exp)
+              (progn
+                (format t "~&    [SUCCESS] ~w~&" ',test)
+                t)
+              (progn
+                (format t "~&    [FAILURE] Test       : ~w~&" ',test)
+                (format t "~&              got        : ~w~&" res)
+                (format t "~&              expected   : ~w~&" exp)
+                (format t "~&              comparison : ~w~&" ,compare)
+                nil)))))))
 
 (defvar b '(x x))
 (defmacro generates-error-p (code)
@@ -98,7 +91,7 @@
 
 (defmacro deftestvar (module name value)
   `(test-add-variable ',module
-                      (list ',name (list 'copy-all ',value))))
+                      (list ',name ',value)))
 
 (defvar run-tests-counter 0)
 
@@ -167,7 +160,7 @@
   (let* ((foo #(a b (1 #(2 4 6) 3) c))
            (copy-of-foo (copy-all foo)))
       copy-of-foo
-      (setf (aref (cadr (aref copy-of-foo 2)) 1) (cons 'MODIFIED (random 42)))
+      (setf (aref (cadr (aref copy-of-foo 2)) 1) (cons 'MODIFIED (random-test 42)))
       (equalp foo #(a b (1 #(2 4 6) 3) c)))
   t #'booleq)
 
@@ -194,3 +187,5 @@
 ;; (run-tests ())
 ;; (run-tests t)
 ;; (run-tests)
+
+(provide 'test-unitaire)

@@ -1,4 +1,4 @@
-(load "match")
+(require 'match "match")
 
 (defun env-size (env)
   (if (or (equalp env #()) (eq env nil))
@@ -168,8 +168,8 @@ d’arguments dans un certain environnement."
                (error "form special ~S not yet implemented" expr))))
 
 ;; Test unitaire
-(load "test-unitaire")
-(load "lisp2li")
+(require 'test-unitaire "test-unitaire")
+(require 'lisp2li "lisp2li")
 (erase-tests meval)
 (deftest (meval :const)
   (meval (lisp2li 3 ()))
@@ -288,3 +288,5 @@ d’arguments dans un certain environnement."
     env)
   #(() 42)
   #'equalp)
+
+(provide 'meval)

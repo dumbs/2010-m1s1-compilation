@@ -214,18 +214,19 @@
 ;;Test Unitaire
 ;; TODO : Faire deftestvar
 ;; TODO : Finir le test unitaire
-(load "test-unitaire")
+(require 'test-unitaire "test-unitaire")
 (erase-tests virtual-machine)
-(deftestvar virtual-machine t-r0-value (+ 1 (random 42))) ;; r0 > 0 pour la division.
-(deftestvar virtual-machine t-r1-value (random 42))
-(deftestvar virtual-machine t-m-value (random 42))
-(deftestvar virtual-machine t-vm-size (+ 10 (random 10)))
-(deftestvar virtual-machine t-adress (random t-vm-size))
+(deftestvar virtual-machine t-r0-value (+ 1 (random-test 42))) ;; r0 > 0 pour la division.
+(deftestvar virtual-machine t-r1-value (random-test 42))
+(deftestvar virtual-machine t-m-value (random-test 42))
+(deftestvar virtual-machine t-vm-size (+ 10 (random-test 10)))
+(deftestvar virtual-machine t-address (random-test t-vm-size))
 (deftestvar virtual-machine vm
-  (progn
-	(make-vm t-vm-size)
+  (let ((vm (make-vm t-vm-size)))
 	(set-register vm 'R0 t-r0-value)
-	(set-memory vm t-adress t-m-value)))
+	(set-register vm 'R1 t-r1-value)
+	(set-memory vm t-address t-m-value)
+    vm))
 
 (deftest virtual-machine
   (progn (ISN-LOAD vm t-address 'R0)
@@ -259,7 +260,7 @@
 	(set-register vm 'R0 2)
 	(ISN-MULT vm 'R0 'R1)
 	(get-register vm 'R1))
-  (* 2 t-r0-value))
+  (* 2 t-r1-value))
 
 (deftest virtual-machine
   (progn (ISN-DIV vm 'R0 'R1) ;; R0 > 0 (voir t-r0-value ci-dessus).
@@ -279,5 +280,6 @@
 (deftest virtual-machine
   (progn (ISN-PUSH vm 'R1)
          (get-memory vm (get-register vm 'SP)))
-  (t-r1-value))
+  t-r1-value)
 
+(provide 'instructions)

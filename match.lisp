@@ -1,4 +1,4 @@
-(load "util") ;; n-consp
+(require 'util "util") ;; n-consp
 
 ;; Syntaxe : (match <motif> expression)
 ;;       ex: (match (:a ? :c) '(a b c)) => t
@@ -660,7 +660,7 @@ donc seule la valeur de la dernière expression de la dernière clause est renvo
                                                                       (go ,to)))
                                                    (_ (go reject))))))))))
 
-(load "test-unitaire")
+(require 'test-unitaire "test-unitaire")
 (erase-tests match)
 
 ;;;; Tests de matching (vrai / faux)
@@ -1429,3 +1429,5 @@ donc seule la valeur de la dernière expression de la dernière clause est renvo
 (deftest (match defmatch)
     (test-match-bar 42)
   'i-m-else)
+
+(provide 'match)

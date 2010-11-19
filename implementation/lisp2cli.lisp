@@ -372,3 +372,5 @@ Est transformé en :
 [set-global-cell-value x [pop]]
 
 |#
+
+(provide 'lisp2cli)

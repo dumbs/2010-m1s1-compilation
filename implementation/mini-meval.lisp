@@ -1,5 +1,5 @@
-(load "match")
-(load "util")
+(require 'match "match")
+(require 'util "util")
 
 ;; TODO (dans mini-meval et/ou compilateur) :
 ;; - match-automaton(tagbody+block)
@@ -554,3 +554,5 @@ Mini-meval sera appellé sur des morceaux spécifiques du fichier source. Il fau
 (deftest (mini-meval block)
   (mini-meval '(block foo 1 2))
   2)
+
+(provide 'mini-meval)
