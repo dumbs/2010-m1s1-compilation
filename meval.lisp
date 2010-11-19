@@ -154,7 +154,7 @@ d’arguments dans un certain environnement."
                (meval-lambda lambda (meval-args args env) env))
               ((:nil :call :func-name _ :body _*)
                (apply (symbol-function func-name) (meval-args body env)))
-              ((:nil :progn :body @.+)
+              ((:nil :progn :body _*)
                (meval-body body env))
               ((:nil :lclosure :size (? integerp) :rest (? integerp)? :body _*)
                (meval-body `(,body) env))
