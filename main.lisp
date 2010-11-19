@@ -1,8 +1,14 @@
-;(setq *print-circle* t)
-(load "environnement")
+;; Main
+
+;; Chargement de tous les fichiers, dans l'ordre du tri topologique
+;; pour tous les re-charger, sans les charger deux fois.
+
+(load "util")
+(load "test-unitaire")
 (load "instructions")
+(load "match")
 (load "lisp2li")
 (load "meval")
-;; ...
-;(run-tests t)
-;(print-env-stack exemple-env-stack)
+(load "implementation/mini-meval")
+
+(provide 'main)

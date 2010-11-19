@@ -170,7 +170,9 @@
       (apply #'append (if (symbolp (car expr))
                           (list (car expr))
                           nil)
-             (mapcar #'find-what-is-used (cdr expr)))))
+             (mapcar #'find-what-is-used-1 (cdr expr)))))
 
 (defun find-what-is-used (expr)
   (remove-duplicates (find-what-is-used-1 expr)))
+
+(provide 'util)

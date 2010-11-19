@@ -1,14 +1,14 @@
-(load "util.lisp")
-(load "match.lisp")
+(require 'util "util.lisp")
+(require 'match "match.lisp")
 
 ;; `
-(defvar my-quasiquote (car '`(,a)))
+(defvar my-quasiquote nil);(car '`(,a)))
 
 ;; ,
-(defvar my-unquote (caaadr '`(,a)))
+(defvar my-unquote nil);(caaadr '`(,a)))
 
 ;; ,@
-(defvar my-unquote-unsplice (caaadr '`(,@a)))
+(defvar my-unquote-unsplice nil);(caaadr '`(,@a)))
 
 (defun map-lisp2li (expr env)
   (mapcar (lambda (x) (lisp2li x env)) expr))
@@ -258,7 +258,7 @@ par le compilateur et par l’interpréteur"
 ;; TODO : demander au prof comment corriger (or (= n 0) (= n 1)) qui rend nil car il fait 2 macroexpand 1: (COND ((= N 0)) (T (= N 1))) 2: (LET (#1=#:RESULT-7048) (IF (SETQ #1# (= N 0)) #1# (= N 1))) et 2 vaux nil car n != 0
 
 ;; Test unitaire
-(load "test-unitaire")
+(require 'test-unitaire "test-unitaire")
 (erase-tests lisp2li)
 
 (deftest (lisp2li make-stat-env)
@@ -552,3 +552,4 @@ par le compilateur et par l’interpréteur"
   '(:let 1 (:set-var (0 1) (:const . 2))
          (:call cons (:cvar 0 1) (:cvar 1 1))))
 
+(provide 'lisp2li)
