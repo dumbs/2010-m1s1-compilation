@@ -13,7 +13,7 @@
 (defmacro assoc-set (k v alist &optional (compare #'eq))
   `(let ((my-k ,k)
          (my-v ,v))
-     (let ((association (assoc my-k ,alist :key ,compare)))
+     (let ((association (assoc my-k ,alist :test ,compare)))
        (if association
            (setf (cdr association) my-v)
            (push (cons my-k my-v) ,alist)))))
@@ -109,13 +109,7 @@
        res))
     ((stringp data)
      (copy-seq data))
-    ((null data)
-     nil)
-    ((symbolp data)
-     data)
-    ((numberp data)
-     data)
-    ((characterp data)
+    ((or (null data) (symbolp data) (numberp data) (characterp data) (functionp data))
      data)
     (t
      (warn "copy-all : Je ne sais pas copier ~w" data)
@@ -170,3 +164,13 @@
 
 (defun group (lst)
   (reverse-alist (group-1 lst)))
+
+(defun find-what-is-used-1 (expr)
+  (if (propper-list-p expr)
+      (apply #'append (if (symbolp (car expr))
+                          (list (car expr))
+                          nil)
+             (mapcar #'find-what-is-used (cdr expr)))))
+
+(defun find-what-is-used (expr)
+  (remove-duplicates (find-what-is-used-1 expr)))
