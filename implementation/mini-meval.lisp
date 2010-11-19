@@ -123,6 +123,27 @@
            (cdr (assoc 'other    lambda-list))
            (cdr (assoc 'aux      lambda-list))))
 
+(defun splice-up-tagbody-1 (todo-body body result)
+  (if (endp todo-body)
+      (acons nil body result)
+    (if (symbolp (car todo-body))
+        (splice-up-tagbody-1 (cdr todo-body)
+                             body
+                             (acons (car todo-body) body result))
+      (splice-up-tagbody-1 (cdr todo-body)
+                           (cons (car todo-body) body)
+                           result))))
+
+(defun splice-up-tagbody (body)
+  (splice-up-tagbody-1 (reverse body) nil nil))
+
+(defun mini-meval-error (expr etat-global etat-local &rest message)
+  (error "~w~&expression = ~w~&etat-global = ~w~&etat-local = ~w"
+         (apply #'format nil message)
+         expr
+         etat-global
+         etat-local))
+
 #|
 Mini-meval est un meval très simple destiné à évaluer les macros et les autres directives avec eval-when :compile-toplevel.
 
@@ -250,7 +271,7 @@ Mini-meval sera appellé sur des morceaux spécifiques du fichier source. Il fau
     (let ((definition (assoc* `(,name . function) #'equal etat-local (cdr etat-global))))
       (if definition
           (cdr definition)
-          (error "mini-meval : undefined function : ~w.~&expression = ~w~&etat-global = ~w~&etat-local = ~w" name expr etat-global etat-local))))
+          (mini-meval-error expr etat-global etat-local "mini-meval : undefined function : ~w." name))))
    ((funcall :name _ :params _*)
     (apply (mini-meval name etat-global etat-local)
            (mapcar (lambda (x) (mini-meval x etat-global etat-local)) params)))
@@ -262,6 +283,40 @@ Mini-meval sera appellé sur des morceaux spécifiques du fichier source. Il fau
     nil)
    ((error :format _ :args _*)
     (error "mini-meval : fonction error appellée par le code, le message est :~&~w" (apply #'format nil format args)))
+   ((go :target $$)
+    (when (null target)
+      (min-meval-error expr etat-global etat-local "mini-meval : nil ne peut pas être une étiquette pour un return-from."))
+    (let ((association (assoc* `(,target . tagbody-tag) #'equal etat-local etat-global)))
+      (if association
+          (funcall (cdr association))
+        (mini-meval-error expr etat-global etat-local "mini-meval : tentative de faire un go sur une étiquette qui n'existe pas ou plus : ~w.~&~w" target))))
+   ((tagbody :body _*)
+    (let ((spliced-body (splice-up-tagbody body))
+          (next-tag nil)
+          (new-etat-local nil))
+      (tagbody
+       init
+       (setq new-etat-local
+             (reduce* etat-local
+                      (lambda (new-etat-local tag)
+                        (acons `(,(car tag) . tagbody-tag)
+                               (lambda () (setq next-tag (car tag)) (go go-to-tag))
+                               new-etat-local))
+                      spliced-body))
+       go-to-tag
+       (mini-meval `(progn ,@(cdr (assoc next-tag spliced-body)))
+                   etat-global
+                   new-etat-local))))
+   ((return-from :block-name $$ :value _)
+    (let ((association (assoc* `(,block-name . block-name) #'equal etat-local etat-global)))
+      (if association
+          (funcall (cdr association) value)
+        (mini-meval-error expr etat-global etat-local "mini-meval : tentative de faire un return-from pour un bloc qui n'existe pas ou plus : ~w." block-name))))
+   ((block :block-name $$ :body _*)
+    (block block-catcher
+      (mini-meval `(progn ,@body) etat-global (acons `(,block-name . block-name)
+                                                     (lambda (x) (return-from block-catcher x))
+                                                     etat-local))))
    ((quote :val _)
     val)
    #| Traitement des appels de fonction |#
@@ -273,7 +328,7 @@ Mini-meval sera appellé sur des morceaux spécifiques du fichier source. Il fau
       (if definition
           #| - Si on a une fonction de ce nom dans l'état-local ou dans l'etat-global, on l'exécute. |#
           (apply (cdr definition) (mapcar (lambda (x) (mini-meval x etat-global etat-local)) params))
-          (error "mini-meval : undefined function : ~w.~&expression = ~w~&etat-global = ~w~&etat-local = ~w" name expr etat-global etat-local))))
+          (mini-meval-error expr etat-global etat-local "mini-meval : undefined function : ~w." name))))
    ((:num . (? numberp))
     num)
    ((:str . (? stringp))
@@ -284,7 +339,7 @@ Mini-meval sera appellé sur des morceaux spécifiques du fichier source. Il fau
     (let ((definition (assoc* `(,name . variable) #'equal etat-local (cdr etat-global))))
       (if definition
           (cdr definition)
-          (error "mini-meval : undefined variable : ~w.~&expression = ~w~&etat-global = ~w~&etat-local = ~w" name expr etat-global etat-local))))))
+          (mini-meval-error expr etat-global etat-local "mini-meval : undefined variable : ~w." name))))))
 
 (defun push-functions (etat-global functions)
   (cons nil (mapcar-append (cdr etat-global) (lambda (x) `((,x .  function) . ,(fdefinition x))) functions)))
@@ -483,3 +538,19 @@ Mini-meval sera appellé sur des morceaux spécifiques du fichier source. Il fau
 
 (deftest-error (mini-meval error)
     (mini-meval '(error "Some user error message.") (cons nil nil) nil))
+
+(deftest (mini-meval tagbody)
+  (mini-meval '(let ((x 0)) (tagbody foo (setq x 1) (go baz) bar (setq x 2) baz) x))
+  1)
+
+(deftest (mini-meval tagbody)
+  (mini-meval '(tagbody foo 1 bar 2 baz 3))
+  nil)
+
+(deftest (mini-meval block)
+  (mini-meval '(block foo 1 (return-from foo 4) 2))
+  4)
+
+(deftest (mini-meval block)
+  (mini-meval '(block foo 1 2))
+  2)
