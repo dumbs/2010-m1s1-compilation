@@ -1,6 +1,6 @@
 (load "match")
 (load "util")
-2(load "implementation/lisp2cli")
+(load "implementation/lisp2cli")
 
 (defvar asm-fixnum-size 32)
 (defvar asm-max-fixnum (expt 2 asm-fixnum-size))
