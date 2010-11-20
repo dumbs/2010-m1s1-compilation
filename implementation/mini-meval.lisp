@@ -285,7 +285,7 @@ Mini-meval sera appellé sur des morceaux spécifiques du fichier source. Il fau
     (error "mini-meval : fonction error appellée par le code, le message est :~&~w" (apply #'format nil format args)))
    ((go :target $$)
     (when (null target)
-      (min-meval-error expr etat-global etat-local "mini-meval : nil ne peut pas être une étiquette pour un return-from."))
+      (mini-meval-error expr etat-global etat-local "mini-meval : nil ne peut pas être une étiquette pour un return-from."))
     (let ((association (assoc* `(,target . tagbody-tag) #'equal etat-local etat-global)))
       (if association
           (funcall (cdr association))
