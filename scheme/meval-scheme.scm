@@ -29,33 +29,34 @@
 
 ;; {{{ Utilitaire generaux
 ;;
-;; Necessaires pour l'auto-amorcage (on pourrait egalement les placer dans l'environnement initial)
+;; Necessaires pour l'auto-amorcage (on pourrait egalement les placer
+;; dans l'environnement initial)
 
 ;; Signaler une erreur et abandonner l'evaluation
 (define (scheme-erreur fn message donnee)
   (erreur 'meval-scheme fn message donnee))
 
-;; cadr: LISTE[alpha]/au moins deux termes/ -> alpha
+;; cadr: LISTE[alpha]/au moins 2 termes/ -> alpha
 ;; (cadr L) rend le second terme de la liste "L"
 (define (cadr L)
   (car (cdr L)))
 
-;; cddr: LISTE[alpha]/au moins deux termes/ ->LISTE[alpha]
+;; cddr: LISTE[alpha]/au moins 2 termes/ ->LISTE[alpha]
 ;; (cddr L) rend la liste "L" privee de ses deux premiers termes
 (define (cddr L)
   (cdr (cdr L)))
 
-;; caddr: LISTE[alpha]/au moins trois termes/ -> alpha
+;; caddr: LISTE[alpha]/au moins 3 termes/ -> alpha
 ;; (caddr L) rend le troisieme terme de la liste "L"
 (define (caddr L)
   (car (cdr (cdr L))))
 
-;; cdddr: LISTE[alpha]/au moins trois termes/ -> LISTE[alpha]
+;; cdddr: LISTE[alpha]/au moins 3 termes/ -> LISTE[alpha]
 ;; (cdddr L) rend la liste "L" privee de ses trois premiers termes
 (define (cdddr L)
   (cdr (cdr (cdr L))))
 
-;; cadddr: LISTE[alpha]/au moins quatre termes/ -> alpha
+;; cadddr: LISTE[alpha]/au moins 4 termes/ -> alpha
 ;; (cadddr L) rend le quatrieme terme de la liste "L"
 (define (cadddr L)
   (car (cdr (cdr (cdr L)))))
@@ -68,9 +69,29 @@
 	  0))
 
 ;; meval-scheme-map: (alpha -> beta) * LISTE[alpha] -> LISTE[beta]
-;; (meval-scheme-map f L) rend la liste des valeurs de "f" appliquee aux termes de la liste "L"
+;; (meval-scheme-map f L) rend la liste des valeurs de "f" appliquee
+;; aux termes de la liste "L"
 (define (meval-scheme-map f L)
   (if (pair? L)
 	  (cons (f (car L)) (meval-scheme-map f (cdr L)))
 	  '()))
 
+;; member: alpha * LISTE[alpha] -> LISTE[alpha] + #f
+;; (member e L) rend le suffixe de "L" debutant par la premiere
+;; occurence de "e" ou #f si "e" n'apparait pas dans "L"
+(define (member e L)
+  (if (pair? L)
+	  (if (equal? e (car L))
+		  L
+		  (member e (cdr L)))
+	  #f))
+
+;; rang: alpha * LISTE[alpha] -> entier
+;; (rang e L) rend le rang de l'element donne dans la liste "L"
+;; (ou on sait que l'element apparait). Le premier element a pour rang 1.
+(define (rang e L)
+  (if (equal? e (car L))
+	  1
+	  (+ 1 (rang e (cdr L)))))
+
+;; }}} Utilitaire generaux
