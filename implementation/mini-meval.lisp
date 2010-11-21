@@ -272,6 +272,7 @@ Mini-meval sera appellé sur des morceaux spécifiques du fichier source. Il fau
       (if definition
           (cdr definition)
           (mini-meval-error expr etat-global etat-local "mini-meval : undefined function : ~w." name))))
+   ;; TODO : #'(lambda ...)
    ((funcall :name _ :params _*)
     (apply (mini-meval name etat-global etat-local)
            (mapcar (lambda (x) (mini-meval x etat-global etat-local)) params)))
