@@ -354,3 +354,47 @@
 
 ;; }}} Evaluateur
 
+;; {{{ Barriere-interpretation
+
+;; Un programme Scheme comme LISP decrit deux sortes d'objets: les valeurs non fonctionnelles
+;; (entier, bool, liste...) et les valeurs fonctionnelles
+
+;;   {{{ Valeurs-non-fonctionnelles
+
+;; citation-val: Citation -> Valeur/non fonctionnelle/
+;; (citation-val cit) rend la valeur de la citation "cit"
+(define (citation-val cit)
+  (if (pair? cit)
+	  (cadr cit)
+	  cit))
+
+;;   }}} Valeur-non-fonctionnelles
+
+;;   {{{ Valeur-fonctionnelles
+
+;; Il y a deux type de fonctions, les fonctions predefinies (reconnues par primitive? en Scheme
+;; et special-form-p en LISP) et les fonctions du programme en cours d'evaluation (creer par
+;; fonction-creation)
+
+;; invocable?: Valeur -> bool
+;; (invocable? val) rend vrai ssi "val" est un fonction (primitive ou definie)
+(define (invocable? val)
+  (if (primitive? val)
+	  #t
+	  (fonction? val)))
+
+;; invocation: Invocable * LISTE[Valeur] -> Valeur
+;; (invocation f args) rend la valeur de l'application de "f" aux elements de "vals"
+(define (invocation f args)
+  (if (primitive? f)
+	  (primitive-invocation f args)
+	  (fonction-invocation f args)))
+
+;;     {{{ Primitives
+
+;; Une primitive est implantee par un 4-uplet :
+;; - le premier element est le symbole *primitive* (pour les reconnaitre)
+;; - le second element est la fonction du Scheme sous-jacent qui implante la primitive,
+;; - le troisieme element est un comparateur (= ou >=)
+;; - le quatrieme element est un entier naturel, ces deux derniers elements permettant
+;; de specifier l'arite de la primitive.
