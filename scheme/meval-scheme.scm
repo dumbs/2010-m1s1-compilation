@@ -436,3 +436,39 @@
 
 ;;     }}} Primitives
 
+;;     {{{ Fonction-meta-definies
+
+;; Une fonction definie est implantee par un 4-uplet:
+;; - le premier element est le symbole *fonction* (pour les reconnaitre)
+;; - le second element est la liste des variables de la definition de la fonction
+;; - le troisieme element est le corps de la definition de la fonction
+;; - le dernier element est l'environnement ou est definie la fonction
+
+;; fonction?: Valeur -> bool
+;; (fonction? val) rend vrai ssi "val" est une fonction meta-definie
+(define (fonction? val)
+  (if (pair? val)
+	  (equal? (car val) '*fonction*)
+	  #f))
+
+;; fonction-invocation: Fonction * LISTE[Valeur] -> Valeur
+;; (fonction-invocation f args) rend la valeur de l'application de la fonction
+;; meta-definie "f" aux element de "args"
+(define (fonction-invocation f args)
+  (let ((variables (cadr f))
+		(corps     (caddr f))
+		(env       (cadddr f)))
+	(corps-eval corps (env-extension env variables args))))
+
+;; fonction-creation: Definition * Environnement -> Fonction
+;; (fonction-creation definition env) rend la fonction definie par "definition" dans
+;; l'environnement "env"
+(define (fonction-creation definition env)
+  (list '*fonction*
+		(definition-variables definition)
+		(definition-corps definition)
+		env))
+
+;;     }}} Fonctions-meta-definies
+;;  }}} Valeurs-fonctionnelles
+;; }}} Barriere-interpretation
