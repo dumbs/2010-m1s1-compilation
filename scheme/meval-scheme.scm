@@ -472,3 +472,203 @@
 ;;     }}} Fonctions-meta-definies
 ;;  }}} Valeurs-fonctionnelles
 ;; }}} Barriere-interpretation
+
+;; {{{ Environnement-H (barriere de haut niveau)
+
+;; variable-val: Variable * Environnement -> Valeur
+;; (variable-val var env) rend la valeur de la variable "var" dans l'environnement "env"
+(define (varible-val var env)
+  (if (env-non-vide? env)
+	  (let ((bloc (env-1er-bloc env)))
+		(let ((variables (blocActivation-variables bloc)))
+		  (if (member var variables)
+			  (blocActivation-val bloc var)
+			  (variable-val var (env-reste env)))))
+	  (scheme-erreur 'variable-val "variable inconnue" var)))
+
+;; env-extension: Environnement * LISTE[Variable] * LISTE[Valeur] -> Environnement
+;; (env-extension env vars vals) rend l'environnement "env" etendu avec un bloc
+;; d'activation liant les variables "vars" aux valeurs "vals"
+(define (env-extension env vars vals)
+  (if (= (length vars) (length vals))
+	  (let ((bloc (blocActivation-creation vars)))
+		(begin
+		  (blocActivation-mettre-valeurs! bloc vals)
+		  (env-add bloc env)))
+	  (scheme-erreur 'env-extension
+					 "arite incorrecte" (list vars vals))))
+
+;; env-add-liaisons: LISTE[Liaison] * Environnement -> Environnement
+;; (env-add-liaisons liaisons env) rend l'environnement obtenu en ajoutant a l'environnement
+;; "env", les liaisons "liaisons"
+(define (env-add-liaisons liaisons env)
+  ;; eval-env: Expression -> Valeur
+  ;; (eval-env exp) rend la valeur de "exp" dans l'environnement "env"
+  (define (eval-env exp)
+	(evaluation exp env))
+  ;; expression de (env-add-liaisons env) :
+  (env-extension
+   env
+   (meval-scheme-map liaison-variable liaisons)
+   (meval-scheme-map eval-env
+					 (meval-scheme-map liaison-exp liaisons))))
+
+;; env-enrichissement: Environnement * LISTE[Definition] -> Environnement
+;; (env-enrichissement env defs) rend l'environnement "env" etendu avec un bloc
+;; d'activation pour les definitions fonctionnelles "defs"
+(define (env-enrichissement env defs)
+  (let ((noms (meval-scheme-map definition-nom-fonction defs)))
+	(let ((bloc (blocActivation-creation noms)))
+	  (let ((env-plus (env-add bloc env)))
+		(define (fonction-creation-env-plus definition)
+		  (fonction-creation definition env-plus))
+		(begin
+		  (blocActivation-mettre-valeurs!
+		   bloc
+		   (meval-scheme-map fonction-creation-env-plus defs))
+		  env-plus)))))
+
+;;   {{ Environnement-B (barriere de bas niveau)
+
+;; Les environnement sont representes par la structure de donnees
+;; LISTE[BlocActivation]
+
+;; env-vide: -> Environnement
+;; (env-vide) rend l'environnement vide
+(define (env-vide) '())
+
+;; env-non-vide?: Environnement -> bool
+;; (env-non-vide? env) rend #t ssi l'environnement "env" n'est pas vide
+(define (env-non-vide? env)
+  (pair? env))
+
+;; env-add: Environnement * BlocActivation -> Environnement
+;; (env-add bloc env) rend l'environnement obtenu en ajoutant devant
+;; l'environnement "env" le bloc d'activation "bloc"
+(define (env-add bloc env)
+  (cons bloc env))
+
+;; env-1er-bloc: Environnement -> BlocActivation
+;; (env-1er-bloc env) rend le premier bloc (le dernier dans la liste) d'activation
+;; de l'environnement "env"
+;; ERREUR lorsque l'environnement donnee est vide
+(define (env-1er-bloc env)
+  (car env))
+
+;; env-reste: Environnement -> Environnement
+;; (env-reste env) rend l'environnement obtenu en supprimant le premier bloc d'activation
+;; de l'environnement "env"
+;; ERREUR lorsque l'environnement donnee est vide
+(define (env-reste env)
+  (cdr env))
+
+;;     {{{ Bloc d'activation
+
+;; Les blocs d'activation sont representes par la structure de donnees:
+;; VECTEUR[LISTE[Variables] Valeur ...]
+
+;; blocActivation-variables: BlocActivation -> LISTE[Variable]
+;; (blocActivation-variables bloc) rend la liste des variables definies
+;; dans le bloc d'activation "bloc"
+(define (blocActivation-variables bloc)
+  (vector-ref bloc 0))
+
+;; blocActivation-val: BlocActivation * Variable -> Valeur
+;; (blocActivation-val bloc val) rend la valeur de la variable "var" dans le bloc
+;; d'activation "bloc"
+;; HYPOTHESE: "var" est une variable definie dans le "bloc"
+(define (blocActivation-val bloc val)
+  (let ((i (rang var (blocActivation-variables bloc))))
+	(vector-ref bloc i)))
+
+;; blocActivation-creation: LISTE[Variable] -> BlocActivation
+;; (blocActivation-creation vars) rend un bloc d'activation contenant la liste des variables
+;; "vars" avec la place qu'il faut pour les valeurs de ces variables, cette place n'etant pas
+;; remplie
+(define (blocActivation-creation vars)
+  (let ((bloc (make-vector (+ 1 (length vars)))))
+	(begin
+	  (vector-set! bloc 0 vars)
+	  bloc)))
+
+;; blocActivation-mettre-valeurs!: BlocActivation * LISTE[Valeur] -> Rien
+;; (blocActivation-mettre-valeurs! bloc vals) affecte les valeurs "vals" (donnees sous forme de
+;; liste) dans le bloc d'activation "bloc".
+(define (blocActivation-mettre-valeurs! bloc vals)
+  ;; remplir!: entier * LISTE[Valeur] -> Rien
+  ;; (remplir! i vals) remplit les cases du vecteur "bloc" a partir de l'indice "i", avec les valeurs
+  ;; de la liste "vals" (et dans le meme ordre)
+  (define (remplir! i vals)
+	(if (pair? vals)
+		(begin
+		  (vector-set! bloc i (car vals))
+		  (remplir! (+ i 1) (cdr vals)))))
+  (remplir! 1 vals))
+
+;;     }}} Bloc d'activation
+;;   }}} Environnement-B (barriere de bas niveau
+
+;;   {{{ Environnement-initial
+
+;; L'environnement initial est compose des primitives.
+;; Pour faciliter la description des differentes primitives (et par manque de temps :D)
+;; on les ecrira sous forme d'une liste de description de primitive.
+;; Une element du type DescriptionPrimitive est une description d'une primitive. C'est
+;; une liste dont :
+;; - le premier element est la variable representant la primitive consideree
+;; - les trois autres elements sont les trois elements qui decrivent
+;; l'implantation de la primitive (la fonction Scheme, le comparateur, et l'arite)
+
+;; env-initial -> Environnement
+;; (env-initial) rend l'environnement initial (l'environnement qui contient toutes les primitives.
+(define (env-initial)
+  (env-extension
+   (env-vide)
+   (meval-scheme-map car (descriptions-primitves))
+   (meval-scheme-map primitive-creation
+					 (meval-scheme-map cdr
+									   (descriptions-primitives)))))
+
+;; description-primitive: Variable * (Valeur ... -> Valeur) * (num * num -> bool) * num -> DescriptionPrimitive
+;; (description-primitive var f comparator arite) rend la description de la primitive designee par "var" implantee
+;; dans Scheme par "f" et dont l'arite est definie par "comparator" et "arite"
+(define (description-primitive var f comparator arite)
+  (list var f comparator arite))
+
+;; descriptions-primitives: -> LISTE[DescriptionPrimitive]
+;; (descriptions-primitives) rend la liste des descriptions de toutes les primitives
+(define (descriptions-primitives)
+  (cons (description-primitive 'car             car              =   1)
+  (cons (description-primitive 'cdr             cdr              =   1)
+  (cons (description-primitive 'cons            cons             =   2)
+  (cons (description-primitive 'list            list             >=  0)
+  (cons (description-primitive 'vector-length   vector-length    =   1)
+  (cons (description-primitive 'vector-ref      vector-ref       =   2)
+  (cons (description-primitive 'vector-set!     vector-set!      =   3)
+  (cons (description-primitive 'make-vector     make-vector      =   1)
+  (cons (description-primitive 'pair?           pair?            =   1)
+  (cons (description-primitive 'symbol?         symbol?          =   1)
+  (cons (description-primitive 'number?         number?          =   1)
+  (cons (description-primitive 'string?         string?          =   1)
+  (cons (description-primitive 'boolean?        boolean?         =   1)
+  (cons (description-primitive 'vector?         vector?          =   1)
+  (cons (description-primitive 'char?           char?            =   1)
+  (cons (description-primitive 'equal?          equal?           =   2)
+  (cons (description-primitive '+               +                >=  0)
+  (cons (description-primitive '-               -                =   2)
+  (cons (description-primitive '*               *                >=  0)
+  (cons (description-primitive '/               /                =   2)
+  (cons (description-primitive '=               =                =   2)
+  (cons (description-primitive '<               <                =   2)
+  (cons (description-primitive '>               >                =   2)
+  (cons (description-primitive '<=              <=               =   2)
+  (cons (description-primitive '>=              >=               =   2)
+  (cons (description-primitive 'remainder      remainder         =   2)
+  (cons (description-primitive 'display        display           =   1)
+  (cons (description-primitive 'newline        newline           =   0)
+  (cons (description-primitive 'read           read              =   0)
+  (cons (description-primitive 'erreur         erreur            >=  2)
+		(list))))))))))))))))))))))))))))))))
+
+;;   }}} Environnement-initial
+;; }}} Environnement-H (barriere de haut niveau)
