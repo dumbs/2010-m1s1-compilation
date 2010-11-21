@@ -28,7 +28,7 @@
                                     (cdr (assoc (car module) (car from)))))))
 
 (defun test-get-variables-and-above (module &optional (from all-tests))
-  (apply #'append (mapcar #'reverse (test-collect-down-tree #'third module from))))
+  (remove-duplicates (apply #'append (mapcar #'reverse (test-collect-down-tree #'third module from))) :key #'car))
 
 (defun test-set-executed (from &optional (value t))
   (setf (second from) value))

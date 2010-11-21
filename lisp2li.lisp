@@ -10,9 +10,11 @@
 ;; ,@
 (defvar my-unquote-unsplice nil);(caaadr '`(,@a)))
 
+(declaim (ftype function lisp2li)) ;; Double récursion map-lisp2li / lisp2li.
 (defun map-lisp2li (expr env)
   (mapcar (lambda (x) (lisp2li x env)) expr))
 
+(declaim (ftype function make-stat-env1)) ;; Double récursion make-stat-env1 / make-stat-env-optional
 (defun make-stat-env-optional (params env position num-env)
   (cond ((endp params)
          env)
@@ -36,17 +38,18 @@
          `((,(caar env) ,(+ 1 (cadar env)) ,(caddar env))
            . ,(recalculation (cdr env))))))
 
+(defun make-stat-env1 (params &optional env (position 1) num-env)
+  (cond ((endp params)
+         env)
+        ((eq '&optional (car params))
+         (make-stat-env-optional (cdr params) env position num-env))
+        ((eq '&rest (car params))
+         (make-stat-env1 (cdr params) env position num-env))
+        (T
+         `((,(car params) 0 ,position)
+           . ,(make-stat-env1 (cdr params) env (+ 1 position) num-env)))))
+
 (defun make-stat-env (params &optional env (position 1))
-  (defun make-stat-env1 (params &optional env (position 1) num-env)
-    (cond ((endp params)
-           env)
-          ((eq '&optional (car params))
-           (make-stat-env-optional (cdr params) env position num-env))
-          ((eq '&rest (car params))
-           (make-stat-env1 (cdr params) env position num-env))
-          (T
-           `((,(car params) 0 ,position)
-             . ,(make-stat-env1 (cdr params) env (+ 1 position) num-env)))))
   (make-stat-env1 params (recalculation env) position 0))
 
 (defun transform-quasiquote (expr)
@@ -73,16 +76,17 @@
     `(cons ,(transform-quasiquote (car expr))
 	   ,(transform-quasiquote (cdr expr))))))
 
+(defun get-nb-params-t (params r)
+  (cond ((endp params)
+         r)
+        ((or (eq '&optional (car params))
+             (eq '&rest (car params)))
+         (get-nb-params-t (cdr params) r))
+        (T
+         (get-nb-params-t (cdr params) (+ 1 r)))))
+
 (defun get-nb-params (params)
   "Renvoie le nombre exact de paramètres sans les &optional et &rest"
-  (defun get-nb-params-t (params r)
-    (cond ((endp params)
-           r)
-          ((or (eq '&optional (car params))
-               (eq '&rest (car params)))
-           (get-nb-params-t (cdr params) r))
-          (T
-           (get-nb-params-t (cdr params) (+ 1 r)))))
   (get-nb-params-t params 0))
 
 (defun implicit-progn (expr)
@@ -246,6 +250,9 @@ par le compilateur et par l’interpréteur"
    ;; declaim
    ((eq 'declaim (car expr))
     (cons :const nil))
+   ;; the
+   ((eq 'the (car expr))
+    (lisp2li (third expr)))
    ;; macros
    ((macro-function (car expr))
     (lisp2li (macroexpand-1 expr) env))
@@ -502,25 +509,28 @@ par le compilateur et par l’interpréteur"
                   (:const . 3)
                   (:const . 4))))
 
-(deftest (lisp2li macro)
-  (lisp2li '(cond ((eq (car '(1 2 3)) 1) T)
-                  ((eq (car '(1 2 3)) 2) 2)
-                  (T nil))
-           ())
-  '(:if (:call eq (:call car (:const 1 2 3)) (:const . 1))
-        (:const . T)
-        (:if (:call eq (:call car (:const 1 2 3)) (:const . 2))
-             (:const . 2)
-             (:const . nil))))
+;; TODO : on ne peut pas faire de tests sur des macros qu'on n'a pas implémentées nous-mêmes,
+;; car sinon le résultat dépend de l'implémentation.
 
-(deftest (lisp2li macro)
-  (lisp2li '(and (eq (car '(1 2)) 1)
-                 T)
-           ())
-  '(:if (:call not
-               (:call eq (:call car (:const 1 2)) (:const . 1)))
-        (:const . nil)
-        (:const . T)))
+;; (deftest (lisp2li macro)
+;;   (lisp2li '(cond ((eq (car '(1 2 3)) 1) T)
+;;                   ((eq (car '(1 2 3)) 2) 2)
+;;                   (T nil))
+;;            ())
+;;   '(:if (:call eq (:call car (:const 1 2 3)) (:const . 1))
+;;         (:const . T)
+;;         (:if (:call eq (:call car (:const 1 2 3)) (:const . 2))
+;;              (:const . 2)
+;;              (:const . nil))))
+
+;; (deftest (lisp2li macro)
+;;   (lisp2li '(and (eq (car '(1 2)) 1)
+;;                  T)
+;;            ())
+;;   '(:if (:call not
+;;                (:call eq (:call car (:const 1 2)) (:const . 1)))
+;;         (:const . nil)
+;;         (:const . T)))
 
 (deftest (lisp2li let)
   (lisp2li '(let ((x 1) (y 2))
