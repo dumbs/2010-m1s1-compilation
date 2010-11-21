@@ -397,4 +397,42 @@
 ;; - le second element est la fonction du Scheme sous-jacent qui implante la primitive,
 ;; - le troisieme element est un comparateur (= ou >=)
 ;; - le quatrieme element est un entier naturel, ces deux derniers elements permettant
-;; de specifier l'arite de la primitive.
+;;   de specifier l'arite de la primitive.
+
+;; primitive?: Valeur -> bool
+;; (primitive? val) rend vrai ssi "val" est une fonction primitive
+(define (primitive? val)
+  (if (pair? val)
+	  (equal? (car val) '*primitive*)
+	  #f))
+
+;; primitive-creation: N-UPLET[(Valeur... -> Valeur)(num * num -> bool) num] -> Primitive
+;; (primitive-creation f-c-n) rend la primitive implantee par la fonction (du Scheme sous-jacent)
+;; "f", le premier element de "f-c-n", et dont l'arite est specifier par le
+;; comparateur "c", deuxieme element de "f-c-n" et l'entier "n", le troisieme element
+(define (primitive-creation f-c-n)
+  (cons '*primitive* f-c-n))
+
+;; primitive-invocation: Primitive * LISTE[Valeur] -> Valeur
+;; (primitive-invocation p args) rend la valeur de l'application de la primitive "p" aux element
+;; de args
+(define (primitive-invocation p args)
+  (let ((n       (length args))
+		(f       (cadr p))
+		(compare (caddr p))
+		(arite   (cadddr p)))
+	(if (compare n arite)
+		(cond
+		 ((= n 0) (f))
+		 ((= n 1) (f (car args)))
+		 ((= n 2) (f (car args) (cadr args)))
+		 ((= n 3) (f (car args) (cadr args) (caddr args)))
+		 ((= n 4) (f (car args) (cadr args) (caddr args) (cadddr args)))
+		 (else
+		  (scheme-erreur 'primitive-invocation
+						 "limite implantation (arite quelconque < 5)" args)))
+		(scheme-erreur 'primitive-invocation
+					   "arite incorrecte" args))))
+
+;;     }}} Primitives
+
