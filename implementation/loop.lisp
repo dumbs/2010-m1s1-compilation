@@ -3,10 +3,13 @@
 (defun transform-loop (expr)
   (let* ((name nil)
          (acc (make-symbol "ACC"))
-         (acc-tail (make-symbol "ACC-TAIL"))
          (first-sym (make-symbol "FIRST"))
          (variables nil)
          (all-variables nil)
+         (declared-variables nil)
+         (acc-tail nil)
+         (acc-tails nil)
+         (this-acc nil)
          (result nil)
          (initialization nil)
          (loopbody nil)
@@ -27,8 +30,8 @@
          (repeat-sym nil)
          (destination nil)
          (with-initial-values nil)
-         (for-clause-type nil)
-         (for-getter-fun nil)
+         (clause-type nil)
+         (element-getter-fun nil)
          (for-initial-value nil)
          (for-step-fun nil)
          (for-end-predicate nil)
@@ -49,15 +52,12 @@
     (macrolet ((advance (x) `(setq ,x (cdr ,x))))
       (tagbody
        start
-         (dbg 'start)
          (when (eq 'named (car expr))
            (if (and (consp (cdr expr)) (symbolp (cadr expr)))
                (setq name (cadr expr))
                (error "bootstrap : loop : expected a loop name but got ~w" (cadr expr))))
          ;;(go prologue)
        prologue
-         (dbg 'prologue)
-         (dbg expr)
          (when (endp expr) (go end-parse))
          (case (car expr)
            (with (go with))
@@ -69,17 +69,11 @@
            (otherwise (go main)))
          (go prologue)
        main
-         (dbg 'main)
          (when (endp expr) (go end-parse))
+         (when (member (car expr) '(collect collecting append appending nconc nconcing count counting sum summing minimize minimizing maximize maximizing))
+           (go accumulation))
          (case (car expr)
            (do (go do))
-           (collect (go collect))
-           (append (go append))
-           (nconc (go nconc))
-           (sum (go sum))
-           (count (go count))
-           (minimize (go minimize))
-           (maximize (go maximize))
            (initially (push 'prologue stack) (go initially))
            (finally (push 'prologue stack) (go finally))
            (otherwise
@@ -87,44 +81,78 @@
             (error "bootstrap : invalid syntax in loop form : ~w." expr)))
          (go main)
          
-       collect
+       accumulation
+         (setq clause-type (car expr))
          (advance expr)
-         (if (endp expr) (error "bootstrap : loop : expected expression after collect but found the end of the loop form."))
-         (if (member expr loop-keywords) (error "bootstrap : loop : loop keyword ~w can't appear here." (car expr)))
-         (push `(if ,acc
-                    (setq ,acc-tail (cdr (rplacd ,acc-tail (cons ,(car expr) nil))))
-                    (setq ,acc-tail (setq ,acc (cons ,(car expr) nil))))
-               loopbody)
+         (if (endp expr) (error "bootstrap : loop : expected expression after ~w but found the end of the loop form." clause-type))
+         (setq accumulation-expr (car expr))
          (advance expr)
-         (go main)
-       append
+         (setq vars-names acc)
+         (unless (eq 'into (car expr)) (go accumulation-got-vars-2))
          (advance expr)
-         (if (endp expr) (error "bootstrap : loop : expected expression after append but found the end of the loop form."))
-         (if (member expr loop-keywords) (error "bootstrap : loop : loop keyword ~w can't appear here." (car expr)))
-         (push `(if ,acc
-                    (setq ,acc-tail (last (rplacd ,acc-tail (copy-list ,(car expr)))))
-                    (setq ,acc-tail (last (setq ,acc (copy-list ,(car expr))))))
-               loopbody)
-         (advance expr)
-         (go main)
-       nconc
-         (error "niy")
-         (go main)
-       sum
-         (error "niy")
-         (go main)
-       count
-         (error "niy")
-         (go main)
-       minimize
-         (error "niy")
-         (go main)
-       maximize
-         (error "niy")
+         (setq get-vars-and-types-end-keywords nil)
+         (push 'accumulation-got-vars stack)
+         (go get-vars-and-types)
+         ;; TODO : on ne gère pas le cas "acc-clause expr type-spec" ("type-spec" sans le "into var"). Mais bon c'est tordu.
+       accumulation-got-vars
+         (when (listp vars-names) (error "bootstrap : loop : Invalid variable name for accumulation : ~w" vars-names))
+       accumulation-got-vars-2
+         (unless (member vars-names declared-variables)
+           (push `(,vars-names ,(if (member clause-type '(count sum)) 0 nil)) variables) ;; TODO : push variables all-variables à la fin si non null
+           (push vars-names declared-variables))
+         (when (member clause-type '(collect collecting append appending nconc nconcing))
+           (setq acc-tail (cdr (assoc vars-names acc-tails)))
+           (unless acc-tail
+             (setq acc-tail (make-symbol "acc-tail"))
+             (push `(,acc-tail nil) variables) ;; TODO : push variables all-variables à la fin si non null
+             (push `(,vars-names . ,acc-tail) acc-tails)))
+         (case clause-type
+           ((collect collecting)  (go collect))
+           ((append appending)    (go append))
+           ((nconc nconcing)      (go nconc))
+           ((count counting)      (go count))
+           ((sum summing)         (go sum))
+           ((minimize minimizing) (go minimize))
+           ((maximize maximizing) (go maximize)))
+       accumulation-end
          (go main)
          
+       collect
+         (setq element-getter-fun `(cons ,accumulation-expr nil))
+         (go accumulate-list)
+       append
+         (setq element-getter-fun `(copy-list ,accumulation-expr))
+         (go accumulate-list)
+       nconc
+         (setq element-getter-fun accumulation-expr)
+         ;; (go accumulate-list)
+       accumulate-list
+         (push `(if ,vars-names
+                    (setq ,acc-tail (rplacd (last ,acc-tail) ,element-getter-fun))
+                    (setq ,acc-tail (setq ,vars-names ,element-getter-fun)))
+               loopbody)
+         (go accumulation-end)
+         
+       sum
+         (push `(setq ,vars-names (+ ,vars-names 1)) loopbody)
+         (go accumulation-end)
+       count
+         (push `(when ,accumulation-expr (setq ,vars-names (+ ,vars-names 1))) loopbody)
+         (go accumulation-end)
+       minimize
+         (setq element-getter-fun 'min) ;; Not an element-getter-fun really but I'm reclutant to add Yet Another Variable.
+         (go min-max)
+       maximize
+         (setq element-getter-fun 'min)
+         ;; (go min-max)
+       min-max
+         (push `(if ,vars-names
+                    (setq ,vars-names (,element-getter-fun ,vars-names ,accumulation-expr))
+                    (setq ,vars-names ,accumulation-expr))
+               loopbody)
+         (go accumulation-end)
+         
        with
-         (dbg 'with)
          (advance expr)
          (setq get-vars-and-types-end-keywords '(=))
          (push 'with-got-vars stack)
@@ -136,7 +164,6 @@
            (setq with-initial-values (car expr))
            (advance expr))
        with-make-let
-         (dbg 'with-make-let)
          (setq left-destr vars-names)
          (setq right-destr with-initial-values)
          (push 'end-with stack)
@@ -150,7 +177,6 @@
          (go prologue)
          
        for
-         (dbg 'for)
          (advance expr) ;; gobble for / and
          ;; (for vars in values)
          ;; (for vars on values)
@@ -164,14 +190,14 @@
          (go get-vars-and-types)
        for-got-vars
          (unless (member (car expr) '(in on = across being)) (go numeric-for))
-         (setq for-clause-type (car expr))
+         (setq clause-type (car expr))
        for-get-initial
          (advance expr)
          (when (endp expr) (error "bootstrap : loop : expected expression but found the end of the loop form."))
          (setq for-initial-value (car expr))
          (advance expr)
        for-select-clause-handler
-         (case for-clause-type
+         (case clause-type
            (in (go in-for))
            (on (go on-for))
            (= (go affect-then-for))
@@ -180,11 +206,11 @@
          (error "bootstrap : loop : serious failure while parsing the for clause handler.")
          
        in-for
-         (setq for-getter-fun `(car ,storage-sym))
+         (setq element-getter-fun `(car ,storage-sym))
          (go in-on-for)
          
        on-for
-         (setq for-getter-fun storage-sym)
+         (setq element-getter-fun storage-sym)
          (go in-on-for)
          
        in-on-for
@@ -198,7 +224,7 @@
          (go for-make-let)
          
        affect-then-for
-         (setq for-getter-fun storage-sym)
+         (setq element-getter-fun storage-sym)
          (setq for-step-fun storage-sym)
          (setq for-end-predicate t)
          (when (eq 'then (car expr))
@@ -252,7 +278,7 @@
          (if (= -1 for-numeric-direction)
              (setq for-step-fun `(cons (- (car ,storage-sym) (second ,storage-sym)) (cdr ,storage-sym)))
              (setq for-step-fun `(cons (+ (car ,storage-sym) (second ,storage-sym)) (cdr ,storage-sym))))
-         (setq for-getter-fun `(car ,storage-sym))
+         (setq element-getter-fun `(car ,storage-sym))
          (go for-make-let)
          
        vector-for
@@ -269,14 +295,14 @@
          (push 'for-make-initially-psetq stack)
          (go destructuring-empty-let)
          ;; (setq left-destr vars-names)
-         ;; (setq right-destr `(funcall ,for-getter-fun (setq ,storage-sym ,for-initial-value)))
+         ;; (setq right-destr `(funcall ,element-getter-fun (setq ,storage-sym ,for-initial-value)))
          ;; (push 'for-make-psetq stack)
          ;; (go destructuring-let)
        for-make-initially-psetq
          (push storage-sym for-initially-psetq)
          (push for-initial-value for-initially-psetq)
          (setq left-destr vars-names)
-         (setq right-destr for-getter-fun)
+         (setq right-destr element-getter-fun)
          (psetq for-initially-affect destr-psetq destr-psetq for-initially-affect) ;; exchange
          (push 'for-make-body-psetq stack)
          (go destructuring-psetq)
@@ -287,7 +313,7 @@
          (unless (eq t for-end-predicate)
            (push `(when ,for-end-predicate (go ,finally-sym)) loopbody))
          (setq left-destr vars-names)
-         (setq right-destr for-getter-fun)
+         (setq right-destr element-getter-fun)
          (push 'for-end stack)
          (go destructuring-psetq)
        for-end
@@ -304,7 +330,6 @@
          (go prologue)
          
        repeat
-         (dbg 'repeat)
          (advance expr)
          (setq repeat-sym (make-symbol "REPEAT-COUNTER"))
          (push `((,repeat-sym ,(car expr))) all-variables)
@@ -315,14 +340,12 @@
          (go prologue)
          
        do
-         (dbg 'do)
          (advance expr)
          (when (endp expr) (error "bootstrap : loop : expected an expression for DO, but encountered the end of the loop form."))
          (when (member (car expr) loop-keywords) (error "bootstrap : loop : keyword ~w can't appear here, expected expression for DO." (car expr)))
          (push (car expr) loopbody)
          (advance expr)
        do-loop
-         (dbg 'do-loop)
          (when (endp expr) (go do-end))
          (when (member (car expr) loop-keywords) (go do-end))
          (push (car expr) loopbody)
@@ -335,7 +358,7 @@
        get-vars-and-types
          ;; params : get-vars-and-types-end-keywords
          ;; returns : vars-names, real-vars-names
-         (dbg 'get-vars-and-types)
+         
          ;; a [= 1] [and ...]
          ;; a type [= 1] [and ...]
          ;; a of-type type [= 1] [and ...]
@@ -362,27 +385,28 @@
          ;; return : nothing
          ;; mutate : variables
          ;; modify : left-destr
-         (dbg 'destructuring-let)
          
          ;; Cas sans destructuring
          (unless (consp left-destr)
            (push `(,left-destr ,right-destr) variables)
+           (push left-destr declared-variables)
            (go destr-let-end))
 
          (push `(,(car left-destr) (car (setq ,destr-whole-sym ,right-destr))) variables)
+         (push (car left-destr) declared-variables)
          (advance left-destr)
        destr-let-loop
-         (dbg 'destr-let-loop)
          (when (endp left-destr)
            (go destr-let-end))
          (when (atom left-destr)
            (push `(,left-destr ,destr-whole-sym) variables)
+           (push left-destr declared-variables)
            (go destr-let-end))
          (push `(,(car left-destr) (car (setq ,destr-whole-sym (cdr ,destr-whole-sym)))) variables)
+         (push (car left-destr) declared-variables)
          (advance left-destr)
          (go destr-let-loop)
        destr-let-end
-         (dbg 'destr-let-end)
          (go return)
          
        destructuring-psetq
@@ -390,7 +414,6 @@
          ;; return : nothing
          ;; mutate : destr-psetq
          ;; modify : left-destr
-         (dbg 'destructuring-psetq)
          
          ;; Cas sans destructuring
          (unless (consp left-destr)
@@ -402,7 +425,6 @@
          (push `(car (setq ,destr-whole-sym ,right-destr)) destr-psetq)
          (advance left-destr)
        destr-psetq-loop
-         (dbg 'destr-psetq-loop)
          (when (endp left-destr)
            (go destr-psetq-end))
          (when (atom left-destr)
@@ -414,7 +436,6 @@
          (advance left-destr)
          (go destr-psetq-loop)
        destr-psetq-end
-         (dbg 'destr-psetq-end)
          (go return)
          
        destructuring-empty-let
@@ -422,48 +443,46 @@
          ;; return : nothing
          ;; mutate : variables
          ;; modify : left-destr
-         (dbg 'destructuring-empty-let)
          
          ;; Cas sans destructuring
          (unless (consp left-destr)
            (push `(,left-destr nil) variables)
+           (push left-destr declared-variables)
            (go destr-empty-let-end))
 
          (push `(,(car left-destr) nil) variables)
+         (push (car left-destr) declared-variables)
          (advance left-destr)
        destr-empty-let-loop
          (when (endp left-destr)
            (go destr-empty-let-end))
          (when (atom left-destr)
            (push `(,left-destr nil) variables)
+           (push left-destr declared-variables)
            (go destr-empty-let-end))
          (push `(,(car left-destr) nil) variables)
+         (push (car left-destr) declared-variables)
          (advance left-destr)
          (go destr-empty-let-loop)
        destr-empty-let-end
-         (dbg 'destr-empty-let-end)
          (go return)
          
        initially
-         (dbg 'initially)
          (advance expr)
          (when (endp expr) (error "bootstrap : loop : expected an expression for INITIALLY, but encountered the end of the loop form."))
          (when (member (car expr) loop-keywords) (error "bootstrap : loop : keyword ~w can't appear here, expected expression for INITIALLY." (car expr)))
          (push (car expr) initialization)
          (advance expr)
        initially-step
-         (dbg 'initially-step)
          (when (endp expr) (go initially-end))
          (when (member (car expr) loop-keywords) (go initially-end))
          (push (car expr) initialization)
          (advance expr)
          (go initially-step)
        initially-end
-         (dbg 'initially-end)
          (go return)
          
        finally
-         (dbg 'finally)
          (advance expr)
          (when (eq 'return (car expr))
            (push `(return-from ,name ,(cadr expr)) finally)
@@ -478,18 +497,15 @@
          (advance expr)
          ;; (go finally-step)
        finally-step
-         (dbg 'finally-step)
          (when (endp expr) (go finally-end))
          (when (member (car expr) loop-keywords) (go finally-end))
          (push (car expr) finally)
          (advance expr)
          (go finally-step)
        finally-end
-         (dbg 'finally-end)
          (go return)
          
        return
-         (dbg 'return)
          (when (endp stack) (error "bootstrap : loop : internal error : call stack is empty !"))
          (setq destination (car stack))
          (setq stack (cdr stack))
@@ -498,6 +514,7 @@
            (main (go main))
            (with-got-vars (go with-got-vars))
            (end-with (go end-with))
+           (accumulation-got-vars (go accumulation-got-vars))
            (for-got-vars (go for-got-vars))
            (for-make-initially-psetq (go for-make-initially-psetq))
            (for-make-body-psetq (go for-make-body-psetq))
@@ -505,9 +522,7 @@
            (otherwise (error "bootstrap : loop : internal error : invalid return point on call stack : ~w" destination)))
          
        end-parse
-         (dbg 'end-parse)
        make-body
-         (dbg 'make-body)
          (setq finally `(progn ,@(reverse (cons `(return-from ,name ,acc) finally))))
          (setq initialization (reverse initialization))
          (setq loopbody (reverse loopbody))
@@ -522,7 +537,6 @@
                    ,finally-sym
                      ,finally)))
        build-lets-loop
-         (dbg 'build-lets-loop)
          (when (endp all-variables)
            (go build-block-and-let))
          (setq result `(let ,(reverse (cadr all-variables)) ,@(car all-variables) ,result))
@@ -530,7 +544,6 @@
          (advance all-variables)
          (go build-lets-loop)
        build-block-and-let
-         (dbg 'build-block-and-lets)
          (setq result
                `(block ,name
                   (let ((,acc nil)
