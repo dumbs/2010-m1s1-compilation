@@ -95,3 +95,138 @@
 	  (+ 1 (rang e (cdr L)))))
 
 ;; }}} Utilitaire generaux
+
+;; {{{ Barriere-syntaxique
+;;
+;; Ces fonctions permettent de manipuler les differentes expression syntaxiques
+;; dont Scheme est forme. Pour chacune de ces differentes formes syntaxiques, on
+;; trouve le reconnaisseur et les accesseurs.
+
+;; variable?: Expression -> bool
+(define (variable? expr)
+  (if (symbol? expr)
+	  (cond ((equal? expr 'cond)   #f)
+			((equal? expr 'else)   #f)
+			((equal? expr 'if)     #f)
+			((equal? expr 'quote)  #f)
+			((equal? expr 'begin)  #f)
+			((equal? expr 'let)    #f)
+			((equal? expr 'let*)   #f)
+			((equal? expr 'define) #f)
+			((equal? expr 'or)     #f)
+			((equal? expr 'and)    #f)
+			(else                  #t))
+	  #f))
+
+;; citation?: Expression -> bool
+(define (citation expr)
+  (cond ((number? expr)  #t)
+		((char? expr)    #t)
+		((string? expr)  #t)
+		((boolean? expr) #t)
+		((pair? expr)    (equal? (car expr) 'quote))
+		(else            #f)))
+
+;; conditionnelle?: Expression -> bool
+(define (conditionnelle? expr)
+  (if (pair? expr)
+	  (equal? (car expr) 'cond)
+	  #f))
+
+;; conditionnelle-clauses: Conditionnelle -> LISTE[Clause]
+(define (conditionnelle-clause cond)
+  (cdr cond))
+
+;; alternative?: Expression -> bool
+(define (alternative? expr)
+  (if (pair? expr)
+	  (equal? (car expr) 'if)
+	  #f))
+
+;; alternative-condition: Alternative -> Expression
+(define (alternative-condition alt)
+  (cadr alt))
+
+;; alternative-consequence: Alternative -> Expression
+(define (alternative-consequence alt)
+  (caddr alt))
+
+;; alternative-alternant: Alternative -> Expression
+(define (alternative-alternant alt)
+  (if (pair? (cdddr alt))
+	  (cadddr alt)
+	  #f))
+
+;; sequence?: Expression -> bool
+(define (sequence? expr)
+  (if (pair? expr)
+	  (equal? (car expr) 'begin)
+	  #f))
+
+;; sequence-exprs: Expression -> LISTE[Expression]
+(define (sequence-exprs expr)
+  (cdr expr))
+
+;; bloc?: Expression -> bool
+(define (bloc? expr)
+  (if (pair? expr)
+	  (equal? (car expr) 'let)
+	  #f))
+
+;; bloc-liaisons: Bloc -> LISTE[Liaison]
+(define (bloc-liaisons bloc)
+  (cadr bloc))
+
+;; bloc-corps: Bloc -> Corps
+(define (bloc-corps bloc)
+  (cddr bloc))
+
+;; application?: Expression -> bool
+(define (application? expr)
+  (pair? expr))
+
+;; application-fonction: Application -> Expression
+(define (application-fonction app)
+  (car app))
+
+;; application-arguments: Application -> LISTE[Expression]
+(define (application-arguments app)
+  (cdr app))
+
+;; clause-condition: Clause -> Expression
+(define (clause-condition clause)
+  (car clause))
+
+;; clause-expressions: Clause -> LISTE[Expression]
+(define (clause-expressions clause)
+  (cdr clause))
+
+;; liaison-variable: Liaison -> Variable
+(define (liaison-variable liaison)
+  (car liaison))
+
+;; liaison-expr: Liaison -> Expression
+(define (liaison-expr liaison)
+  (cadr liaison))
+
+;; definition?: Corps -> bool
+;; (definition? corps) rend #t ssi le premier elements de "corps" est une definition
+(define (definition? corps)
+  (if (pair? corps)
+	  (equal? (car corps) 'define)
+	  #f))
+
+;; definition-nom-fonction: Definition -> Variable
+(define (definition-nom-fonction def)
+  (car (cadr def)))
+
+;; definition-variables: Definition -> LISTE[Variable]
+(define (definition-variables def)
+  (cdr (cadr def)))
+
+;; definition-corps: Definition -> Corps
+(define (definition-corps def)
+  (cddr def))
+
+;; }}} Barriere-syntaxique
+
