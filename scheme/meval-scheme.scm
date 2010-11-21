@@ -230,3 +230,127 @@
 
 ;; }}} Barriere-syntaxique
 
+;; {{{ Evaluateur
+
+;; meval-scheme: Expression -> Valeur
+;; (meval-scheme e) rend la valeur de l'expression "e"
+(define (meval-scheme e)
+  (evaluation e (env-initial)))
+
+;; evaluation: Expression * Environnement -> Valeur
+;; (evaluation expr env) rend la valeur de l'expression "expr" dans l'environnement "env"
+(define (evaluation expr env)
+  ;; (discrimine l'expression et invoque l'evaluateur specialise)
+  (cond
+   ((variable? expr) (variable-val expr env))
+   ((citation? expr) (citation-val expr env))
+   ((alternative? expr) (alternative-eval
+						 (alternative-condition expr)
+						 (alternative-consequence expr)
+						 (alternative-alternant expr) env))
+   ((conditionnelle? expr) (conditionnelle-eval
+							(conditionnelle-clauses expr) env))
+   ((sequence? expr) (sequence-eval (sequence-exprs expr) env))
+   ((bloc? expr) (bloc-eval (bloc-liaisons expr)
+							(bloc-corps expr) env))
+   ((application? expr) (application-eval
+						 (application-fonction expr)
+						 (application-arguments expr) env))
+   (else
+	(scheme-erreur 'evaluation "pas un programme" expr))))
+
+;; alternative-eval: Expression3 * Environnement -> Valeur
+;; (alternative-eval condition consequence alternant env) rend la valeur de
+;; l'expression "(if condition consequence alternant)" dans l'environnement "env"
+(define (alternative-eval condition consequence alternant)
+  (if (evaluation condition env)
+	  (evaluation consequence env)
+	  (evaluation alternant env)))
+
+;; conditionnelle-eval: LISTE[Clause] -> Expression
+;; (conditionnelle-eval clauses env) rend la valeur, dans l'environnement "env",
+;; de l'expression "(cond c1 c2 ... cn)".
+(define (conditionnelle-eval clauses env)
+  (evaluation (cond-expansion clauses) env))
+
+;; cond-expansion: LISTE[Clause] -> Expression
+;; (cond-expansion clauses) rend l'expression, ecrite avec des alternatives,
+;; equivalente a l'expression "(cond c1 c2 .. cn)".
+(define (cond-expansion clauses)
+  (if (pair? clauses)
+	  (let ((first-clause (cadr clauses)))
+		(if (equal? (clause-condition first-clause) 'else)
+			(cons 'begin (clause-expressions first-clause))
+			(cons 'if
+				  (cons
+				   (clause-condition first-clause)
+				   (cons
+					(cons 'begin (clause-expressions first-clause))
+					(let ((seq (cond-expansion (cdr clauses))))
+					  (if (pair? seq)
+						  (list seq)
+						  seq)))))))
+	  '()))
+
+;; sequence-eval: LISTE[Expression] * Environnement -> Valeur
+;; (sequence-eval exprs env) rend la valeur, dans l'environnement "env",
+;; de l'expression "(begin e1 ... en)". (Il faut evaluer tour a tour les
+;; expressions et rendre la valeur de la derniere expression.)
+(define (sequence-eval exprs env)
+  ;; sequence-eval+: LISTE[Expression]/non vide/ -> Valeur
+  ;; meme fonction, sachant que la liste "exprs" n'est pas vide et en globalisant
+  ;; la variable "env"
+  (define (sequence-eval+ exprs)
+	(if (pair? (cdr exprs))
+		(begin (evaluation (car exprs) env)
+			   (sequence-eval+ (cdr exprs)))
+		(evaluation (car exprs) env)))
+  ;; expression de (sequence-eval exprs env):
+  (if (pair? exprs)
+	  (sequence-eval+ exprs)
+	  #f))
+
+;; application-eval: Expression * LISTE[Expression] * Environnement -> Valeur
+;; (application-eval exp-fn args env) rend la valeur de l'invocation de
+;; l'expression "exp-fn" aux arguments "args" dans l'environnement "env"
+(define (application-eval exp-fn args env)
+  ;; eval-env : Expression -> Valeur
+  ;; (eval-env expr) rend la valeur de "expr" dans l'environnement "env"
+  (define (eval-env expr)
+	(evaluation expr env))
+  ;;expression de (application-eval exp-fn args env) :
+  (let ((f (evaluation exp-fn env)))
+	(if (invocable? f)
+		(invocation f (meval-scheme-map eval-env args))
+		(scheme-erreur 'application-eval
+					   "pas une fonction" f))))
+
+;; bloc-eval: LISTE[Liaison] * Corps * Environnement -> Valeur
+;; (bloc-eval liaisons corps env) rend la valeur, dans l'environnement "env"
+;; de l'expression "(let liaisons corps)"
+(define (bloc-eval liaisons corps env)
+  (corps-eval corps (env-add-liaisons liaisons env)))
+
+;; corps-eval: Corps * Environnement -> Valeur
+;; (corps-eval corps env) rend la valeur de "corps" dans l'environnement "env"
+(define (corps-eval corps env)
+  (let ((def-exp (corps-separation-defs-exps corps)))
+	(let ((defs (car def-exp))
+		  (exps (cadr def-exp)))
+	  (sequence-eval exps (env-enrichissement env defs)))))
+
+;; corps-separation-defs-exps: Corps -> COUPLE[LISTE[Definition] LISTE[Expression]]
+;; (corps-separation-defs-exps corps) rend un couple dont le premier elements est
+;; la liste des definitions du corps "corps" et le second element est la liste des
+;; expressions de ce corps
+(define (corps-separation-defs-exps corps)
+  (if (definition? (car corps))
+	  (let ((def-exp-cdr
+			  (corps-separation-defs-exps (cdr corps))))
+		(cons (cons (car corps)
+					(car def-exp-cdr))
+			  (cdr def-exp-cdr)))
+	  (list '() corps)))
+
+;; }}} Evaluateur
+
