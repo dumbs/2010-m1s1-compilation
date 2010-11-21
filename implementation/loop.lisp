@@ -29,10 +29,9 @@
          (stack nil)
          (repeat-sym nil)
          (destination nil)
-         (with-initial-values nil)
+         (main-value nil)
          (clause-type nil)
          (element-getter-fun nil)
-         (for-initial-value nil)
          (for-step-fun nil)
          (for-end-predicate nil)
          (for-numeric-direction nil)
@@ -70,10 +69,11 @@
          (go prologue)
        main
          (when (endp expr) (go end-parse))
-         (when (member (car expr) '(collect collecting append appending nconc nconcing count counting sum summing minimize minimizing maximize maximizing))
-           (go accumulation))
          (case (car expr)
            (do (go do))
+           ((collect collecting append appending nconc nconcing count counting sum summing minimize minimizing maximize maximizing)
+            (go accumulation))
+           ((while until always never thereis) (go end-test-control))
            (initially (push 'prologue stack) (go initially))
            (finally (push 'prologue stack) (go finally))
            (otherwise
@@ -85,7 +85,7 @@
          (setq clause-type (car expr))
          (advance expr)
          (if (endp expr) (error "bootstrap : loop : expected expression after ~w but found the end of the loop form." clause-type))
-         (setq accumulation-expr (car expr))
+         (setq main-value (car expr))
          (advance expr)
          (setq vars-names acc)
          (unless (eq 'into (car expr)) (go accumulation-got-vars-2))
@@ -98,7 +98,7 @@
          (when (listp vars-names) (error "bootstrap : loop : Invalid variable name for accumulation : ~w" vars-names))
        accumulation-got-vars-2
          (unless (member vars-names declared-variables)
-           (push `(,vars-names ,(if (member clause-type '(count sum)) 0 nil)) variables) ;; TODO : push variables all-variables à la fin si non null
+           (push `(,vars-names ,(if (member clause-type '(count counting sum summing)) 0 nil)) variables) ;; TODO : push variables all-variables à la fin si non null
            (push vars-names declared-variables))
          (when (member clause-type '(collect collecting append appending nconc nconcing))
            (setq acc-tail (cdr (assoc vars-names acc-tails)))
@@ -114,31 +114,29 @@
            ((sum summing)         (go sum))
            ((minimize minimizing) (go minimize))
            ((maximize maximizing) (go maximize)))
-       accumulation-end
-         (go main)
          
        collect
-         (setq element-getter-fun `(cons ,accumulation-expr nil))
+         (setq element-getter-fun `(cons ,main-value nil))
          (go accumulate-list)
        append
-         (setq element-getter-fun `(copy-list ,accumulation-expr))
+         (setq element-getter-fun `(copy-list ,main-value))
          (go accumulate-list)
        nconc
-         (setq element-getter-fun accumulation-expr)
+         (setq element-getter-fun main-value)
          ;; (go accumulate-list)
        accumulate-list
          (push `(if ,vars-names
                     (setq ,acc-tail (rplacd (last ,acc-tail) ,element-getter-fun))
                     (setq ,acc-tail (setq ,vars-names ,element-getter-fun)))
                loopbody)
-         (go accumulation-end)
+         (go main)
          
        sum
          (push `(setq ,vars-names (+ ,vars-names 1)) loopbody)
-         (go accumulation-end)
+         (go main)
        count
-         (push `(when ,accumulation-expr (setq ,vars-names (+ ,vars-names 1))) loopbody)
-         (go accumulation-end)
+         (push `(when ,main-value (setq ,vars-names (+ ,vars-names 1))) loopbody)
+         (go main)
        minimize
          (setq element-getter-fun 'min) ;; Not an element-getter-fun really but I'm reclutant to add Yet Another Variable.
          (go min-max)
@@ -147,10 +145,30 @@
          ;; (go min-max)
        min-max
          (push `(if ,vars-names
-                    (setq ,vars-names (,element-getter-fun ,vars-names ,accumulation-expr))
-                    (setq ,vars-names ,accumulation-expr))
+                    (setq ,vars-names (,element-getter-fun ,vars-names ,main-value))
+                    (setq ,vars-names ,main-value))
                loopbody)
-         (go accumulation-end)
+         (go main)
+
+       end-test-control
+         (setq clause-type (car expr))
+         (advance expr)
+         (if (endp expr) (error "bootstrap : loop : expected expression after ~w but found the end of the loop form." clause-type))
+         (setq main-value (car expr))
+         (advance expr)
+         (case clause-type
+           (while   (push `(unless ,main-value (go ,finally-sym)) loop-body))
+           (until   (push `(when   ,main-value (go ,finally-sym)) loop-body))
+           (always  (push `(unless ,main-value (return-from ,name nil)) loop-body)
+                    (unless (member ,acc declared-variables)
+                      (push `(,acc t) variables)
+                      (push acc declared-variables)))
+           (never   (push `(when   ,main-value (return-from ,name nil)) loop-body)
+                    (unless (member ,acc declared-variables)
+                      (push `(,acc t) variables)
+                      (push acc declared-variables)))
+           (thereis (push `(let ((foo ,main-value)) (when foo (return-from ,name foo))) loop-body)))
+         (go main)
          
        with
          (advance expr)
@@ -158,14 +176,14 @@
          (push 'with-got-vars stack)
          (go get-vars-and-types)
        with-got-vars
-         (setq with-initial-values nil)
+         (setq main-value nil)
          (when (eq '= (car expr))
            (advance expr)
-           (setq with-initial-values (car expr))
+           (setq main-value (car expr))
            (advance expr))
        with-make-let
          (setq left-destr vars-names)
-         (setq right-destr with-initial-values)
+         (setq right-destr main-value)
          (push 'end-with stack)
          (go destructuring-let)
        end-with
@@ -194,7 +212,7 @@
        for-get-initial
          (advance expr)
          (when (endp expr) (error "bootstrap : loop : expected expression but found the end of the loop form."))
-         (setq for-initial-value (car expr))
+         (setq main-value (car expr))
          (advance expr)
        for-select-clause-handler
          (case clause-type
@@ -245,7 +263,7 @@
            (when (eq 'upfrom (car expr)) (setq for-numeric-direction 1))
            (advance expr)
            (when (endp expr) (error "bootstrap : loop : expected expression after from but found the end of the loop form."))
-           (setq for-initial-value (car expr))
+           (setq main-value (car expr))
            (advance expr))
          (when (member (car expr) '(to downto upto below above))
            (setq for-numeric-limit (car expr))
@@ -274,7 +292,7 @@
            (when (endp expr) (error "bootstrap : loop : expected expression after by but found the end of the loop form."))
            (setq for-numeric-step (car expr))
            (advance expr))
-         (setq for-initial-value `(list ,for-numeric-start ,for-numeric-step ,for-numeric-end))
+         (setq main-value `(list ,for-numeric-start ,for-numeric-step ,for-numeric-end))
          (if (= -1 for-numeric-direction)
              (setq for-step-fun `(cons (- (car ,storage-sym) (second ,storage-sym)) (cdr ,storage-sym)))
              (setq for-step-fun `(cons (+ (car ,storage-sym) (second ,storage-sym)) (cdr ,storage-sym))))
@@ -295,12 +313,12 @@
          (push 'for-make-initially-psetq stack)
          (go destructuring-empty-let)
          ;; (setq left-destr vars-names)
-         ;; (setq right-destr `(funcall ,element-getter-fun (setq ,storage-sym ,for-initial-value)))
+         ;; (setq right-destr `(funcall ,element-getter-fun (setq ,storage-sym ,main-value)))
          ;; (push 'for-make-psetq stack)
          ;; (go destructuring-let)
        for-make-initially-psetq
          (push storage-sym for-initially-psetq)
-         (push for-initial-value for-initially-psetq)
+         (push main-value for-initially-psetq)
          (setq left-destr vars-names)
          (setq right-destr element-getter-fun)
          (psetq for-initially-affect destr-psetq destr-psetq for-initially-affect) ;; exchange
