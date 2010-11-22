@@ -31,6 +31,7 @@
          (destination nil)
          (main-value nil)
          (clause-type nil)
+         (thereis-temp (make-symbol "THERIS-TEMP")
          (element-getter-fun nil)
          (for-step-fun nil)
          (for-end-predicate nil)
@@ -67,19 +68,26 @@
            (finally (push 'prologue stack) (go finally))
            (otherwise (go main)))
          (go prologue)
+         
        main
          (when (endp expr) (go end-parse))
          (case (car expr)
+           (initially (push 'main stack) (go initially))
+           (finally (push 'main stack) (go finally)))
+         (push 'main stack)
+         ;; (go main-core)
+         
+       main-core
+         (case (car expr)
            (do (go do))
+           (return (go loop-return))
            ((collect collecting append appending nconc nconcing count counting sum summing minimize minimizing maximize maximizing)
             (go accumulation))
            ((while until always never thereis) (go end-test-control))
-           (initially (push 'prologue stack) (go initially))
-           (finally (push 'prologue stack) (go finally))
+           ((if when unless) (go conditionnal))
            (otherwise
             (when (member (car expr) loop-keywords) (error "bootstrap : loop : loop keyword ~w can't appear here." (car expr)))
             (error "bootstrap : invalid syntax in loop form : ~w." expr)))
-         (go main)
          
        accumulation
          (setq clause-type (car expr))
@@ -103,7 +111,7 @@
          (when (member clause-type '(collect collecting append appending nconc nconcing))
            (setq acc-tail (cdr (assoc vars-names acc-tails)))
            (unless acc-tail
-             (setq acc-tail (make-symbol "acc-tail"))
+             (setq acc-tail (make-symbol "ACC-TAIL"))
              (push `(,acc-tail nil) variables) ;; TODO : push variables all-variables à la fin si non null
              (push `(,vars-names . ,acc-tail) acc-tails)))
          (case clause-type
@@ -129,14 +137,14 @@
                     (setq ,acc-tail (rplacd (last ,acc-tail) ,element-getter-fun))
                     (setq ,acc-tail (setq ,vars-names ,element-getter-fun)))
                loopbody)
-         (go main)
+         (go return)
          
        sum
          (push `(setq ,vars-names (+ ,vars-names 1)) loopbody)
-         (go main)
+         (go return)
        count
          (push `(when ,main-value (setq ,vars-names (+ ,vars-names 1))) loopbody)
-         (go main)
+         (go return)
        minimize
          (setq element-getter-fun 'min) ;; Not an element-getter-fun really but I'm reclutant to add Yet Another Variable.
          (go min-max)
@@ -148,7 +156,7 @@
                     (setq ,vars-names (,element-getter-fun ,vars-names ,main-value))
                     (setq ,vars-names ,main-value))
                loopbody)
-         (go main)
+         (go return)
 
        end-test-control
          (setq clause-type (car expr))
@@ -167,8 +175,8 @@
                     (unless (member ,acc declared-variables)
                       (push `(,acc t) variables)
                       (push acc declared-variables)))
-           (thereis (push `(let ((foo ,main-value)) (when foo (return-from ,name foo))) loop-body)))
-         (go main)
+           (thereis (push `(let ((,thereis-temp ,main-value)) (when ,thereis-temp (return-from ,name foo))) loop-body)))
+         (go return)
          
        with
          (advance expr)
@@ -359,7 +367,7 @@
          
        do
          (advance expr)
-         (when (endp expr) (error "bootstrap : loop : expected an expression for DO, but encountered the end of the loop form."))
+         (when (endp expr) (error "bootstrap : loop : expected an expression after DO, but encountered the end of the loop form."))
          (when (member (car expr) loop-keywords) (error "bootstrap : loop : keyword ~w can't appear here, expected expression for DO." (car expr)))
          (push (car expr) loopbody)
          (advance expr)
@@ -370,8 +378,62 @@
          (advance expr)
          (go do-loop)
        do-end
-         (go main)
+         (go return)
+
+       loop-return
+         (advance expr)
+         (when (endp expr) (error "bootstrap : loop : expected an expression after RETURN, but encountered the end of the loop form."))
+         (push `(return-from ,name ,(car expr)) loopbody)
+         (advance expr)
+         (go body)
+
+       conditionnal
+         ;; backup loopbody
+         (push loopbody conditionnal-stack)
+         (setq loopbody nil)
          
+         (setq clause-type (car expr))
+         (advance expr)
+         (when (endp expr) (error "bootstrap : loop : expected an expression after ~w, but encountered the end of the loop form." clause-type))
+         (if (eq 'unless clause-type)
+             (push `(not (car expr)) conditionnal-stack)
+             (push (car expr)        conditionnal-stack))
+         (advance expr)
+
+         ;; get conditionnal clause
+         (push 'conditionnal-after-if-clause stack)
+         (go get-conditionnal-clause)
+       conditionnal-after-if-clause
+         
+         ;; backup if-clause
+         (push loopbody conditionnal-stack)
+         (setq loopbody nil)
+         (unless (eq 'else (car expr))
+           (go conditionnal-after-else))
+         
+         ;; get conditionnal clause
+         (push 'conditionnal-after-else-clause stack)
+         (go get-conditionnal-clause)
+       conditionnal-after-else-clause
+         
+         (if (eq 'end (car expr)) (advance expr))
+         
+         (push loopbody conditionnal-stack)
+         (setq loopbody (cadddr conditionnal-stack))
+         ;; conditionnal-stack contains (else-clause if-clause condition old-body ...)
+         (push `(if ,(caddr conditionnal-stack) ,(cadr conditionnal-stack) ,(car conditionnal-stack)) loopbody)
+         (setq conditionnal-stack (cddddr conditionnal-stack)) ;; pop !
+         (go return)
+         
+       get-conditionnal-clause
+         (when (endp expr) (error "Expected conditionnal if-clause or else-clause, but found the end of the loop form."))
+         (push 'get-conditionnal-clause-loop stack)
+         (go main-core)
+       get-conditionnal-clause-loop
+         (unless (eq 'and (car expr)) (go return))
+         (advance expr)
+         (push 'get-conditionnal-clause-loop stack)
+         (go main-core)
          
        get-vars-and-types
          ;; params : get-vars-and-types-end-keywords
@@ -487,7 +549,7 @@
          
        initially
          (advance expr)
-         (when (endp expr) (error "bootstrap : loop : expected an expression for INITIALLY, but encountered the end of the loop form."))
+         (when (endp expr) (error "bootstrap : loop : expected an expression after INITIALLY, but encountered the end of the loop form."))
          (when (member (car expr) loop-keywords) (error "bootstrap : loop : keyword ~w can't appear here, expected expression for INITIALLY." (car expr)))
          (push (car expr) initialization)
          (advance expr)
@@ -503,13 +565,14 @@
        finally
          (advance expr)
          (when (eq 'return (car expr))
-           (push `(return-from ,name ,(cadr expr)) finally)
            (advance expr)
+           (when (endp expr) (error "bootstrap : loop : expected an expression after FINALLY RETURN, but encountered the end of the loop form."))
+           (push `(return-from ,name ,(car expr)) finally)
            (advance expr)
            (go finally-end))
          (when (member (car expr) '(do doing))
            (advance expr))
-         (when (endp expr) (error "bootstrap : loop : expected an expression for FINALLY, but encountered the end of the loop form."))
+         (when (endp expr) (error "bootstrap : loop : expected an expression after FINALLY, but encountered the end of the loop form."))
          (when (member (car expr) loop-keywords) (error "bootstrap : loop : keyword ~w can't appear here, expected expression for FINALLY." (car expr)))
          (push (car expr) finally)
          (advance expr)
@@ -537,9 +600,13 @@
            (for-make-initially-psetq (go for-make-initially-psetq))
            (for-make-body-psetq (go for-make-body-psetq))
            (for-end (go for-end))
+           (conditionnal-after-if-clause (go conditionnal-after-if-clause))
+           (conditionnal-after-else-clause (go conditionnal-after-else-clause))
+           (get-conditionnal-clause-loop (go get-conditionnal-clause-loop)
            (otherwise (error "bootstrap : loop : internal error : invalid return point on call stack : ~w" destination)))
          
        end-parse
+         (when variables (push variables all-variables))
        make-body
          (setq finally `(progn ,@(reverse (cons `(return-from ,name ,acc) finally))))
          (setq initialization (reverse initialization))
@@ -564,9 +631,7 @@
        build-block-and-let
          (setq result
                `(block ,name
-                  (let ((,acc nil)
-                        (,acc-tail nil)
-                        (,destr-whole-sym nil)
+                  (let ((,destr-whole-sym nil)
                         (,first-sym t))
                     ,acc
                     ,acc-tail
