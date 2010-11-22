@@ -9,7 +9,6 @@
          (declared-variables nil)
          (acc-tail nil)
          (acc-tails nil)
-         (this-acc nil)
          (result nil)
          (initialization nil)
          (loopbody nil)
@@ -27,11 +26,12 @@
                           if when unless else end
                           and))
          (stack nil)
+         (conditionnal-stack nil)
          (repeat-sym nil)
          (destination nil)
          (main-value nil)
          (clause-type nil)
-         (thereis-temp (make-symbol "THERIS-TEMP")
+         (thereis-temp (make-symbol "THERIS-TEMP"))
          (element-getter-fun nil)
          (for-step-fun nil)
          (for-end-predicate nil)
@@ -78,6 +78,7 @@
          ;; (go main-core)
          
        main-core
+         (format t "~&MAIN-CORE : ~a ~&RET ~a" expr stack)
          (case (car expr)
            (do (go do))
            (return (go loop-return))
@@ -165,17 +166,17 @@
          (setq main-value (car expr))
          (advance expr)
          (case clause-type
-           (while   (push `(unless ,main-value (go ,finally-sym)) loop-body))
-           (until   (push `(when   ,main-value (go ,finally-sym)) loop-body))
-           (always  (push `(unless ,main-value (return-from ,name nil)) loop-body)
-                    (unless (member ,acc declared-variables)
+           (while   (push `(unless ,main-value (go ,finally-sym)) loopbody))
+           (until   (push `(when   ,main-value (go ,finally-sym)) loopbody))
+           (always  (push `(unless ,main-value (return-from ,name nil)) loopbody)
+                    (unless (member acc declared-variables)
                       (push `(,acc t) variables)
                       (push acc declared-variables)))
-           (never   (push `(when   ,main-value (return-from ,name nil)) loop-body)
-                    (unless (member ,acc declared-variables)
+           (never   (push `(when   ,main-value (return-from ,name nil)) loopbody)
+                    (unless (member acc declared-variables)
                       (push `(,acc t) variables)
                       (push acc declared-variables)))
-           (thereis (push `(let ((,thereis-temp ,main-value)) (when ,thereis-temp (return-from ,name foo))) loop-body)))
+           (thereis (push `(let ((,thereis-temp ,main-value)) (when ,thereis-temp (return-from ,name foo))) loopbody)))
          (go return)
          
        with
@@ -385,9 +386,10 @@
          (when (endp expr) (error "bootstrap : loop : expected an expression after RETURN, but encountered the end of the loop form."))
          (push `(return-from ,name ,(car expr)) loopbody)
          (advance expr)
-         (go body)
+         (go return)
 
        conditionnal
+         (format t "~&CONDITIONNAL : ~a ~&RET ~a" expr stack)
          ;; backup loopbody
          (push loopbody conditionnal-stack)
          (setq loopbody nil)
@@ -408,20 +410,26 @@
          ;; backup if-clause
          (push loopbody conditionnal-stack)
          (setq loopbody nil)
+         (format t "~&1: ~a ~a" expr stack)
+         (when (eq 'end (car expr))
+           (go conditionnal-after-else-clause))
          (unless (eq 'else (car expr))
-           (go conditionnal-after-else))
+           (go conditionnal-after-else-clause))
+         (advance expr)
          
          ;; get conditionnal clause
          (push 'conditionnal-after-else-clause stack)
          (go get-conditionnal-clause)
        conditionnal-after-else-clause
          
+         (format t "~&2: ~a ~a" expr stack)
          (if (eq 'end (car expr)) (advance expr))
+         (format t "~&3: ~a ~a" expr stack)
          
          (push loopbody conditionnal-stack)
          (setq loopbody (cadddr conditionnal-stack))
          ;; conditionnal-stack contains (else-clause if-clause condition old-body ...)
-         (push `(if ,(caddr conditionnal-stack) ,(cadr conditionnal-stack) ,(car conditionnal-stack)) loopbody)
+         (push `(if ,(caddr conditionnal-stack) ,@(cadr conditionnal-stack) ,@(car conditionnal-stack)) loopbody)
          (setq conditionnal-stack (cddddr conditionnal-stack)) ;; pop !
          (go return)
          
@@ -602,13 +610,18 @@
            (for-end (go for-end))
            (conditionnal-after-if-clause (go conditionnal-after-if-clause))
            (conditionnal-after-else-clause (go conditionnal-after-else-clause))
-           (get-conditionnal-clause-loop (go get-conditionnal-clause-loop)
+           (get-conditionnal-clause-loop (go get-conditionnal-clause-loop))
            (otherwise (error "bootstrap : loop : internal error : invalid return point on call stack : ~w" destination)))
          
        end-parse
-         (when variables (push variables all-variables))
+         (when variables
+           (push variables all-variables)
+           (push nil all-variables))
        make-body
-         (setq finally `(progn ,@(reverse (cons `(return-from ,name ,acc) finally))))
+         (setq finally `(progn
+                          ,@(reverse (cons `(return-from ,name
+                                              ,(if (member acc declared-variables) acc nil))
+                                           finally))))
          (setq initialization (reverse initialization))
          (setq loopbody (reverse loopbody))
          (setq result
@@ -633,8 +646,6 @@
                `(block ,name
                   (let ((,destr-whole-sym nil)
                         (,first-sym t))
-                    ,acc
-                    ,acc-tail
                     ,destr-whole-sym
                     ,first-sym
                     ;; If you call loop-finish during variable declarations, and you use variables that haven't been initialized,
@@ -647,9 +658,38 @@
        rideau))
     result))
 
-;; (eval (transform-loop '(for (i j) in '((1 1) (2 4) (3 9)) do (print i))))
-;; (eval (transform-loop '(for (i j) in '((1 1) (2 4) (3 9)) for k from 0 to 5 do (format t "~&~a ~a ~a" i j k) initially (print 'i) finally (print 'f) (print i))))
-;; (eval (transform-loop '(for i = 42 and j in (list 1 i 3) for k = i then (cons i j) collect (list i j k))))
+#|
+(eval (transform-loop '(for (i j) in '((1 1) (2 4) (3 9)) do (print i))))
+=> 1
+=> 2
+=> 3
+=> nil
+(eval (transform-loop '(for (i j) in '((1 1) (2 4) (3 9)) do (print i) collect i into k append '(a a) into k finally return k)))
+=> 1
+=> 2
+=> 3
+=> '(1 a a 2 a a 3 a a)
+(eval (transform-loop '(for (i j) in '((1 1) (2 4) (3 9)) for k from 0 to 5 do (format t "~&~a ~a ~a" i j k) initially (print 'init) (print i) finally (print 'fin) (print i))))
+=> INIT 
+=> 1 
+=> 1 1 0
+=> 2 4 1
+=> 3 9 2
+=> FIN 
+=> 3 
+=> NIL
+(eval (transform-loop '(for i = 42 and j in (list 1 i 3) for k = i then (cons i j) collect (list i j k))))
+=> ((42 1 42) (42 NIL (42)) (42 3 (42 . 3)))
+(eval (transform-loop '(for i from 1 to 10 if (evenp i) collect i else collect 'odd)))
+=> (0 ODD 2 ODD 4 ODD 6 ODD 8 ODD 10)
+(eval (transform-loop '(for i from 1 to 10 if (evenp i) collect i if (evenp (/ i 2)) collect 'four append '(four) end else collect 'odd)))
+=> (0 ODD 2 ODD 4 ODD 6 ODD 8 ODD 10)
+
+;; Gros bug bizarre : le résultat de cette expression est une sorte de multi-valeurs, dont la dernière est mal parenthésée !!! ???
+;; Comment peut-on produire une valeur mal parenthésée !!! ???
+;; (sous sbcl).
+(caddr (caddr (car (cddddr (caddar (cddddr (caddr (transform-loop '(for i from 1 to 10 if (evenp i) collect i and if (evenp (/ i 2)) collect 'four and append '(four) end else collect 'odd)))))))))
+|#
 
 #|
 (loop (print 5))
