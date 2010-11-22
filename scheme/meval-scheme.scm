@@ -1,3 +1,4 @@
+#lang scheme
 ;; {{{ Grammaire du langage
 ;; Le langage interprete est defini par la grammaire suivante :
 ;; meval-scheme := expression
@@ -34,7 +35,7 @@
 
 ;; Signaler une erreur et abandonner l'evaluation
 (define (scheme-erreur fn message donnee)
-  (erreur 'meval-scheme fn message donnee))
+  (error "meval-scheme" fn message donnee))
 
 ;; cadr: LISTE[alpha]/au moins 2 termes/ -> alpha
 ;; (cadr L) rend le second terme de la liste "L"
@@ -119,7 +120,7 @@
 	  #f))
 
 ;; citation?: Expression -> bool
-(define (citation expr)
+(define (citation? expr)
   (cond ((number? expr)  #t)
 		((char? expr)    #t)
 		((string? expr)  #t)
@@ -134,7 +135,7 @@
 	  #f))
 
 ;; conditionnelle-clauses: Conditionnelle -> LISTE[Clause]
-(define (conditionnelle-clause cond)
+(define (conditionnelle-clauses cond)
   (cdr cond))
 
 ;; alternative?: Expression -> bool
@@ -243,7 +244,7 @@
   ;; (discrimine l'expression et invoque l'evaluateur specialise)
   (cond
    ((variable? expr) (variable-val expr env))
-   ((citation? expr) (citation-val expr env))
+   ((citation? expr) (citation-val expr))
    ((alternative? expr) (alternative-eval
 						 (alternative-condition expr)
 						 (alternative-consequence expr)
@@ -262,7 +263,7 @@
 ;; alternative-eval: Expression3 * Environnement -> Valeur
 ;; (alternative-eval condition consequence alternant env) rend la valeur de
 ;; l'expression "(if condition consequence alternant)" dans l'environnement "env"
-(define (alternative-eval condition consequence alternant)
+(define (alternative-eval condition consequence alternant env)
   (if (evaluation condition env)
 	  (evaluation consequence env)
 	  (evaluation alternant env)))
@@ -477,7 +478,7 @@
 
 ;; variable-val: Variable * Environnement -> Valeur
 ;; (variable-val var env) rend la valeur de la variable "var" dans l'environnement "env"
-(define (varible-val var env)
+(define (variable-val var env)
   (if (env-non-vide? env)
 	  (let ((bloc (env-1er-bloc env)))
 		(let ((variables (blocActivation-variables bloc)))
@@ -511,7 +512,7 @@
    env
    (meval-scheme-map liaison-variable liaisons)
    (meval-scheme-map eval-env
-					 (meval-scheme-map liaison-exp liaisons))))
+					 (meval-scheme-map liaison-expr liaisons))))
 
 ;; env-enrichissement: Environnement * LISTE[Definition] -> Environnement
 ;; (env-enrichissement env defs) rend l'environnement "env" etendu avec un bloc
@@ -574,10 +575,10 @@
   (vector-ref bloc 0))
 
 ;; blocActivation-val: BlocActivation * Variable -> Valeur
-;; (blocActivation-val bloc val) rend la valeur de la variable "var" dans le bloc
+;; (blocActivation-val bloc var) rend la valeur de la variable "var" dans le bloc
 ;; d'activation "bloc"
 ;; HYPOTHESE: "var" est une variable definie dans le "bloc"
-(define (blocActivation-val bloc val)
+(define (blocActivation-val bloc var)
   (let ((i (rang var (blocActivation-variables bloc))))
 	(vector-ref bloc i)))
 
@@ -602,7 +603,8 @@
 	(if (pair? vals)
 		(begin
 		  (vector-set! bloc i (car vals))
-		  (remplir! (+ i 1) (cdr vals)))))
+		  (remplir! (+ i 1) (cdr vals)))
+                null))
   (remplir! 1 vals))
 
 ;;     }}} Bloc d'activation
@@ -624,7 +626,7 @@
 (define (env-initial)
   (env-extension
    (env-vide)
-   (meval-scheme-map car (descriptions-primitves))
+   (meval-scheme-map car (descriptions-primitives))
    (meval-scheme-map primitive-creation
 					 (meval-scheme-map cdr
 									   (descriptions-primitives)))))
@@ -667,7 +669,7 @@
   (cons (description-primitive 'display        display           =   1)
   (cons (description-primitive 'newline        newline           =   0)
   (cons (description-primitive 'read           read              =   0)
-  (cons (description-primitive 'erreur         erreur            >=  2)
+  (cons (description-primitive 'error          error             >=  2)
 		(list))))))))))))))))))))))))))))))))
 
 ;;   }}} Environnement-initial
