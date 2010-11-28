@@ -1,16 +1,15 @@
 ;; lisp2li simpliste pour le compilateur. On fusionnera les deux plus tard.
 
-(defmatch lisp2cli)
+(defmatch squash-lisp)
 
-(defmatch lisp2cli (:num . (? numberp)) `(:const . ,num))
-(defmatch lisp2cli (:str . (? stringp)) `(:const . ,str))
-(defmatch lisp2cli (quote :val _)       `(:const . ,val))
-(defmatch lisp2cli ()                   `(:const . nil))
-(defmatch lisp2cli (let ((:name $ :value _)*) :body _*)
+(defmatch squash-lisp (:num . (? numberp)) `(:const . ,num))
+(defmatch squash-lisp (:str . (? stringp)) `(:const . ,str))
+(defmatch squash-lisp (quote :val _)       `(:const . ,val))
+(defmatch squash-lisp ()                   `(:const . nil))
+(defmatch squash-lisp (let ((:name $ :value _)*) :body _*)
   `(:let ,name ,value ,body))
-(defmatch lisp2cli (:name _ :params _*) `(:call ,name ,@(mapcar #'lisp2cli params)))
-(defmatch lisp2cli (:x . _)             (error "Lisp2cli ne sait pas gérer : ~w" x))
-
+(defmatch squash-lisp (:name _ :params _*) `(:call ,name ,@(mapcar #'squash-lisp params)))
+(defmatch squash-lisp (:x . _)             (error "Squash-Lisp ne sait pas gérer : ~w" x))
 
 #|
 
@@ -373,4 +372,4 @@ Est transformé en :
 
 |#
 
-(provide 'lisp2cli)
+(provide 'squash-lisp)
