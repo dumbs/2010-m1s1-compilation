@@ -1,6 +1,6 @@
 ;; TODO : ne gère pas les échappements "foo\"bar" etc. ni les #...
 
-(defun read (input-stream)
+(defun mread (input-stream)
   (let ((result-stack '())
         (result nil)
         (char nil)
@@ -34,9 +34,9 @@
          (cond
            ((not char)       (go end-of-file))
            ((char= char #\() (go read-list))
-           ((char= char #\)) (error "Paren mismatch."))
+           ((char= char #\)) (error "Paren mismatch. Stack :~&~a" stack))
            ((char= char #\') (go read-quote))
-           ((char= char #\;) (go read-comment))
+           ((char= char #\;) (push 'read-any-loop stack) (go read-comment))
            ((char= char #\") (go read-string))
            ((char= char #\#) (go read-sharp))
            ((char= char #\`) (go read-backquote))
@@ -51,19 +51,25 @@
        read-list
          (print 'read-list)
          (push-result)
+         (get-char)
        read-list-loop
          (print 'read-list-loop)
-         (get-char)
-         (push 'read-list-loop-2 stack)
+         (print char)
+         (print result)
+         (when (or (not char) (char= char #\)))
+           (go end-read-list-loop))
+         (print char)
+         (push 'read-list-loop stack)
          (go read-any)
-       read-list-loop-2
-         (print 'read-list-loop-2)
-         (unless (or (not char) (char= char #\)))
-           (go read-list-loop))
+       end-read-list-loop
+         (print 'end-read-list-loop)
          (when (not char)
            (error "EOF while reading a list"))
+         (get-char)
+         (format t "~&::~a" result)
          (push (reverse result) (car result-stack))
          (pop-result)
+         ;(get-char)
          (go return)
          
        read-quote
@@ -83,6 +89,7 @@
 
        read-comment
        read-comment-loop
+         (print 'read-cpmment-loop)
          (get-char)
          (unless (or (not char) (char= char #\newline))
            (go read-comment-loop))
@@ -109,7 +116,17 @@
          (go return)
          
        read-sharp
-         (error "niy")
+         (get-char)
+         (cond
+          ((char= char #\') (go read-quote-function))
+          (t (error "bootstrap : read : niy : syntax #~a not implemented yet." char)))
+         
+       read-quote-function
+         (print 'read-quote-syntax)
+         (push-result)
+         (push-val 'function)
+         (get-char)
+         (go read-quotes-content)
          
        read-backquote
          (print 'read-quote)
@@ -156,6 +173,7 @@
          (case top-stack
            (start (go start))
            (read-any (go read-any))
+           (read-any-loop (go read-any-loop))
            (end-read-any (go end-read-any))
            (read-list (go read-list))
            (read-list-loop (go read-list-loop))
