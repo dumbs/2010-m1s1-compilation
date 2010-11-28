@@ -175,4 +175,28 @@
 (defun find-what-is-used (expr)
   (remove-duplicates (find-what-is-used-1 expr)))
 
+(defmacro dolist* (spec &rest body)
+  (let* ((vars (mapcar #'car spec))
+         (listforms (mapcar #'cadr spec))
+         (loopsym (make-symbol "loop"))
+         (endsym (make-symbol "end"))
+         (listsyms (mapcar (lambda (x) (cons x (make-symbol "list"))) vars)))
+    `(let (,@(mapcar (lambda (var) `(,var nil)) vars)
+           ,@(mapcar (lambda (ls val) `(,(cdr ls) ,val)) listsyms listforms))
+       (tagbody
+        ,loopsym
+          ,@(mapcar (lambda (ls)
+                      `(setq ,(car ls) (car ,(cdr ls))))
+                    listsyms)
+          ,@(mapcar (lambda (ls)
+                      `(when (endp ,(cdr ls))
+                         (go ,endsym)))
+                    listsyms)
+          (progn ,@body)
+          ,@(mapcar (lambda (ls)
+                      `(setq ,(cdr ls) (cdr ,(cdr ls))))
+                    listsyms)
+          (go ,loopsym)
+        ,endsym))))
+
 (provide 'util)
