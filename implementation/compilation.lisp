@@ -1,6 +1,6 @@
 (require 'match "match")
 (require 'util "util")
-(require 'lisp2cli "implementation/lisp2cli")
+(require 'squash-lisp "implementation/squash-lisp")
 
 (defvar asm-fixnum-size 32)
 (defvar asm-max-fixnum (expt 2 asm-fixnum-size))
