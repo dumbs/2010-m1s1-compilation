@@ -9,7 +9,7 @@
 
 (defmacro etat-special (etat)
   ;; Variables spéciales et constantes. (ou devrait-on mettre les constantes dans etat-global ?)
-  ;; Note sur les constantes : On ne protège pas contre la modification de parties d'une constante non atomiqe (mais clisp non plus, donc ça va).
+  ;; Note sur les constantes : On ne protège pas contre la modification de parties d'une constante non atomique (mais clisp non plus, donc ça va).
   `(caddr ,etat))
 
 (defun assoc-etat (var type etat)
@@ -184,28 +184,17 @@
        (when (endp fixed) (go end-fixed))
        (when (endp params) (error "mini-meval-params : not enough parameters !"))
        (setq new-etat (push-local-or-special new-etat (car fixed) 'variable (car params) nil))
-       ;; (setq association (assoc-special (car fixed) 'variable etat))
-       ;; (if association
-       ;;     (push (list association (mini-meval (car params) etat) (cdr association)) restore-special-fixed)
-       ;;     (setq new-etat (push-local new-etat (car fixed) 'variable (car params))))
        (setq params (cdr params))
        (setq fixed (cdr fixed))
        (go fixed)
      end-fixed
        (affect-future-specials new-etat etat)
-       ;; (dolist (x restore-special-fixed) (setf (cdar x) (cadr x)))
      optional
        (when (endp optional) (go rest))
        (if (endp params)
            (setq value (mini-meval (cadar optional) new-etat)) ;; default value
            (setq value (car params)))
        (setq new-etat (push-local-or-special new-etat (caar optional) 'variable value t))
-       ;; (setq association (assoc-special (car optional) 'variable etat))
-       ;; (when association
-       ;;   (push (cons association (cdr association)) restore-special-optional)
-       ;;   (setf (cdr association) value))
-       ;; (unless association
-       ;;   (setq new-etat (push-local new-etat (car optional) 'variable value)))
        (setq svar (caddar optional))
        (when svar
          (setq new-etat (push-local-or-special new-etat svar 'variable (endp params) t)))
@@ -235,12 +224,6 @@
        (go assoc-key-loop)
      end-assoc-key-loop
        (setq new-etat (push-local-or-special new-etat (second current-key) 'variable (second params) t))
-       ;; (setq association (assoc-special (second current-key) 'variable etat))
-       ;; (when association
-       ;;   (push (cons association (cdr association)) restore-special-optional)
-       ;;   (setf (cdr association) (cadr params)))
-       ;; (unless association
-       ;;   (setq new-etat (push-local new-etat (car current-key) 'variable (cadr params))))
        (setq svar (fourth current-key))
        (when svar
          (setq new-etat (push-local-or-special new-etat svar 'variable t t)))
@@ -263,41 +246,6 @@
        (setq aux (cdr aux))
      fin)
     new-etat))
-
-  ;; (if fixed
-  ;;     (if (endp params)
-  ;;         (error "mini-meval-params : not enough parameters !")
-  ;;         (mini-meval-params (cdr params) (push-local etat (car fixed) 'variable (car params)) (cdr fixed) optional rest key other aux))
-  ;;     (if optional
-  ;;         (let* ((var (caar optional))
-  ;;                (value (if (endp params)
-  ;;                           (mini-meval (cadar optional) etat)
-  ;;                           (car params)))
-  ;;                (svar (caddar optional))
-  ;;                (new-etat (push-local etat var 'variable value)))
-  ;;           (when svar (setq new-etat (push-local new-etat svar 'variable (endp params))))
-  ;;           (mini-meval-params (cdr params) new-etat nil (cdr optional) rest key other aux))
-  ;;         (if rest
-  ;;             (mini-meval-params params (push-local etat (car rest) 'variable params) nil nil nil key other aux)
-  ;;             ;; TODO : finir d'implémenter &key &allow-other-keys &aux &rest (et relire CLTL).
-  ;;             etat))))
-;              (if key
-;                  (let* ((keyword (first (car key)))
-;                         (var (second (car key)))
-;                         (maybe-val (member keyword params))
-;                         (maybe-val-2 (if maybe-val
-;                                          (if (n-consp 2 maybe-val)
-;                                              maybe-val
-;                                              (error "mini-meval-params : Nombre de paramètres impair alors qu'il y a &key."))))
-;                         (svar (fourth (car key)))
-;                         (new-local (acons `(,var . variable) (if maybe-val-2
-;                                                   (cadr maybe-val-2)
-;                                                   (mini-meval (third (car key)) global local))
-;                                           local))
-;                         (new-local-2 (if svar
-;                                          (acons `(,svar . variable) (not (not (maybe-val-2))) new-local)
-;                                          new-local)))
-;                    (mini-meval-params params global new-local-2 nil nil nil (cdr key) other aux)
 
 (defun mini-meval-get-params-from-real (etat lambda-list effective-parameters)
   "Lambda-list doit être déjà sliced."
@@ -355,13 +303,12 @@ Mini-meval sera appellé sur des morceaux spécifiques du fichier source. Il fau
    ((:name $$ :params _*)
     (let ((definition (assoc-etat name 'macro etat)))
       (if definition
-          #| - Si on a une fonction de ce nom dans l'état-local ou dans l'etat-global, on l'exécute. |#
           (mini-meval (apply (cdr definition) params) etat)
           (else))))
    #| 1) Cas des formes spéciales |#
    ((eval-when :situations ($*) :body _*)
     (if (member :execute situations)
-        (mini-meval body etat)
+        (mini-meval `(progn ,@body) etat)
         nil))
    ((flet ((:name $ :lambda-list @ :fbody _*)*) :body _*)
     (mini-meval `(progn ,@body)
@@ -385,58 +332,37 @@ Mini-meval sera appellé sur des morceaux spécifiques du fichier source. Il fau
           (res nil))
       (dolist* ((name name) (value value))
                (setq new-etat (push-local-or-special new-etat name 'variable (mini-meval value etat) nil)))
-           ;; (new-etat (reduce-on-local
-           ;;            etat
-           ;;            (lambda (ignore name value) ignore
-           ;;                    (when (assoc-etat name 'constant etat) (error "mini-meval : Can't bind ~w : it is a constant." name))
-           ;;                    (setq association (assoc-special name 'variable etat))
-           ;;                    (when association
-           ;;                      (push (list association (mini-meval value etat) (cdr association)) restore-special))
-           ;;                    (unless association
-           ;;                      (list name 'variable (mini-meval value etat))))
-           ;;            name value)))
       (affect-future-specials new-etat etat)
-      ;; (dolist (x restore-special) (setf (cdar x) (cadr x)))
       (setq res (mini-meval `(progn ,@body) new-etat))
       (pop-special-backups new-etat etat)
       res))
-      ;; (dolist (x restore-special) (setf (cdar x) (caddr x)))))
    (((? (eq x 'let*)) ((:name $ :value _)*) :body _*)
     (let ((new-etat etat)
           (res nil))
       ;; pour chaque variable
       (dolist* ((name name) (value value))
                (setq new-etat (push-local-or-special new-etat name 'variable (mini-meval value new-etat) t)))
-           ;; (new-etat (reduce-on-local
-           ;;            etat
-           ;;            (lambda (new-etat-local name value)
-           ;;              (when (assoc-etat name 'constant etat) (error "mini-meval : Can't bind ~w : it is a constant." name))
-           ;;              (setq association (assoc-special name 'variable etat))
-           ;;              (when association
-           ;;                (push (cons association (cdr association)) restore-special)
-           ;;                (setf (cdr association) (mini-meval value (replace-local etat new-etat-local))))
-           ;;              (unless association
-           ;;                (list name 'variable (mini-meval value (replace-local etat new-etat-local)))))
-           ;;            name value)))
       (setq res (mini-meval `(progn ,@body) new-etat))
       (pop-special-backups new-etat etat)
       res))
-      ;; (dolist (x restore-special) (setf (cdar x) (cdr x)))))
    ((macrolet ((:name $ :lambda-list @ :mbody _*)*) :body _*)
-    (mini-meval `(progn ,@body)
-                (let ((etat-sans-local (replace-local etat nil)))
-                  (reduce-on-local
-                   etat
-                   (lambda (ignore name lambda-list mbody) ignore
-                     ;; comme le flet sauf nil au lieu de new-etat-local
-                     ;; CLTL 7.5 :
-                     ;; The precise rule is that the macro-expansion functions defined
-                     ;; by macrolet are defined in the global environment; lexically
-                     ;; scoped entities that would ordinarily be lexically apparent
-                     ;; are not visible within the expansion functions.
-                     (list name 'macro
-                           (mini-meval `(lambda ,lambda-list ,@mbody) etat-sans-local)))
-                   name lambda-list mbody))))
+    (let ((new-etat
+           (reduce-on-local
+            etat
+            (lambda (ignore name lambda-list mbody) ignore
+                    ;; comme le flet sauf nil au lieu de new-etat-local
+                    ;; CLTL 7.5 :
+                    ;; The precise rule is that the macro-expansion functions defined
+                    ;; by macrolet are defined in the global environment; lexically
+                    ;; scoped entities that would ordinarily be lexically apparent
+                    ;; are not visible within the expansion functions.
+                    (list name 'macro
+                          (mini-meval `(lambda ,lambda-list ,@mbody) (replace-local etat nil))))
+            name lambda-list mbody))
+          (get-etat (assoc-etat 'trapdoor 'squash-trapdoor etat)))
+      (if (and get-etat (eq (car body) (cdr get-etat)))
+          new-etat ;; Trapdoor pour récupérer l'etat avec les définitions du macrolet.
+          (mini-meval `(progn ,@body) new-etat))))
    ((progn :body _*)
     (let ((res nil))
       (dolist (expr body res)
@@ -455,6 +381,9 @@ Mini-meval sera appellé sur des morceaux spécifiques du fichier source. Il fau
                (res (mini-meval `(progn ,@body) new-etat)))
           (pop-special-backups new-etat etat)
           res))))
+   ;; Lorsqu'une fonction "littérale" est présente dans le code, on la renvoie telle qu'elle.
+   ((:fun . (? functionp))
+    fun)
    ((defun :name $ :lambda-list @ :body _*)
     (push-global! etat name 'function
                   (mini-meval `(lambda ,lambda-list ,@body) etat))
@@ -551,10 +480,9 @@ Mini-meval sera appellé sur des morceaux spécifiques du fichier source. Il fau
           #| - Si on a une fonction de ce nom dans l'état-local ou dans l'etat-global, on l'exécute. |#
           (apply (cdr definition) (mapcar (lambda (x) (mini-meval x etat)) params))
           (mini-meval-error expr etat "Undefined function : ~w." name))))
-   ((:num . (? numberp))
-    num)
-   ((:str . (? stringp))
-    str)
+   ((? or numberp stringp)
+    expr)
+   ;; TODO : nil et t devraient être des defconst
    (nil
     nil)
    ((:name . $$)

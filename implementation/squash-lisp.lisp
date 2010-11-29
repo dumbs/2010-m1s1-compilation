@@ -1,15 +1,150 @@
+(require 'mini-meval "implementation/mini-meval")
+
 ;; lisp2li simpliste pour le compilateur. On fusionnera les deux plus tard.
 
-(defmatch squash-lisp)
+(defun simple-splice-up-tagbody (body)
+  "Découpe le body d'un tagbody en une liste associative ordonnée toute simple :
+   (tagbody a b (foo bar) c (baz) (quux) d) => '((a) (b (foo bar)) (c (baz) (quux)) (d))"
+  (let ((all-res nil) (res (list (make-symbol "START"))))
+    (tagbody
+     start
+       (when (endp body)
+         (push (reverse res) all-res)
+         (go end))
+       (when (and (car body) (symbolp (car body)))
+         (push (reverse res) all-res)
+         (setq res (list (car body)))
+         (setq body (cdr body))
+         (go start))
+       (push (car body) res)
+       (setq  body (cdr body))
+       (go start)
+     end)
+    (reverse all-res)))
 
-(defmatch squash-lisp (:num . (? numberp)) `(:const . ,num))
-(defmatch squash-lisp (:str . (? stringp)) `(:const . ,str))
-(defmatch squash-lisp (quote :val _)       `(:const . ,val))
-(defmatch squash-lisp ()                   `(:const . nil))
-(defmatch squash-lisp (let ((:name $ :value _)*) :body _*)
-  `(:let ,name ,value ,body))
-(defmatch squash-lisp (:name _ :params _*) `(:call ,name ,@(mapcar #'squash-lisp params)))
-(defmatch squash-lisp (:x . _)             (error "Squash-Lisp ne sait pas gérer : ~w" x))
+;; (defmatch squash-lisp)
+
+;; (defmatch squash-lisp (:num . (? numberp)) `(:const . ,num))
+;; (defmatch squash-lisp (:str . (? stringp)) `(:const . ,str))
+;; (defmatch squash-lisp (quote :val _)       `(:const . ,val))
+;; (defmatch squash-lisp ()                   `(:const . nil))
+;; (defmatch squash-lisp (let ((:name $ :value _)*) :body _*)
+;;   `(:let ,name ,value ,body))
+;; (defmatch squash-lisp (:name _ :params _*) `(:call ,name ,@(mapcar #'squash-lisp params)))
+;; (defmatch squash-lisp (:x . _)             (error "Squash-Lisp ne sait pas gérer : ~w" x))
+
+(defun squash-lisp (expr &optional (at-toplevel t) (etat (list nil nil nil)))
+  (cond-match
+   expr
+   ;; - Si on rencontre une macro définie dans l'environnement de compiler-meval,
+   ;;   1) On demande à compiler-meval d'expanser la macro sur un niveau.
+   ;;   2) On re-lance la transformation (eval-when / defmacro / appel de macro / ...) sur le résultat s'il y a a eu expansion.
+   ((:name $$ :params _*)
+    (print etat)
+    (print name)
+    (let ((definition (assoc-etat name 'macro etat)))
+      (print definition)
+      (if definition
+          (squash-lisp (apply (cdr definition) params) at-toplevel etat)
+          (else))))
+   
+   ;; - Si on rencontre EVAL-WHEN,
+   ;;   - Au top-level,
+   ;;     - Pour chaque form du body,
+   ;;       - Si la situation contient :compile-toplevel, le form est évalué dans compiler-meval.
+   ;;       - Si la situation contient :load-toplevel, le form est compilé (après évaluation dans compiler-meval s'il y a lieu).
+   ;;       - Lorsqu'un eval-when au top-level contient des eval-when directement sous lui, ils sont traités comme s'ils étaient directement au top-level.
+   ;;   - Ailleurs
+   ;;     - Si la situation contient :load-toplevel, le form est compilé
+   ((eval-when :situations ($*) :body _*)
+    (when (and at-toplevel (member :compile-toplevel situations))
+      (mini-meval `(progn ,@body) etat))
+    (when (member :load-toplevel situations)
+      (squash-lisp body at-toplevel etat)))
+   
+   ;; - Si on rencontre un defmacro (au toplevel ou ailleurs).
+   ;;   - On demande à compiler-meval de l'exécuter.
+   ((defmacro :name $ :lambda-list @ :body _*)
+    (mini-meval expr etat))
+   
+   ;; - Si on rencontre un macrolet
+   ;;   - On fait une copie de l'état de compiler-meval
+   ;;   - On lui demande d'exécuter les définitions
+   ;;   - On évalue le body avec ce nouvel état
+   ;;   - On continue avec l'ancien état
+   ((macrolet :definitions ((:name $ :lambda-list @ :mbody _*)*) :body _*)
+    (let ((get-etat (make-symbol "GET-ETAT")))
+      (squash-lisp
+       `(progn ,@body)
+       at-toplevel
+       (mini-meval `(macrolet ,definitions ,get-etat) (push-local etat 'trapdoor 'squash-trapdoor get-etat)))))
+   
+   ;; - Si on gère le symbol-macrolet
+   ;;   - Le fonctionnement est le même que pour le macrolet
+   ;;   - Lorsqu'on rencontre un symbole, on regarde s'il a une définition de type symbol-macrolet
+   ((symbol-macrolet . _)
+    (error "squash-lisp Symbol-macrolet n'est pas implémenté."))
+
+   ;; TODO : squash le progn
+   ((progn :body _*)
+    (cons 'progn (mapcar (lambda (form) (squash-lisp form at-toplevel etat)) body)))
+   
+   ;; Lorsqu'on rentre dans un block, on met sur la pile un marqueur spécial avec un pointeur vers un objet créé à l'exécution.
+   ((block :block-name $$ :body _*)
+    (let ((retval-sym (make-symbol "RETVAL"))
+          (end-sym (make-symbol "END-BLOCK")))
+      (squash-lisp
+       `(let ((,retval-sym nil))
+          (tagbody
+             (progn ,@body)
+             ,end-sym)
+          ,retval-sym)
+       (push-local etat block-name 'squash-block-catch (cons end-sym retval-sym)))))
+   
+   ;; Les return-from <nom> qui sont accessibles lexicalement sont remplacés par un (unwind <l'objet>)
+   ;; Unwind remonte la pile jusqu'à trouver le marqueur spécial, tout en exécutant les unwind-protect éventuels.
+   ;; Si unwind ne trouve pas le marqueur et arrive en haut de la pile, il signale une erreur et termine le programme.
+   ;; Sinon, l'exécution reprend après le block.
+   ((return-from :block-name $$ :value _)
+    (let ((association (assoc-etat block-name 'squash-block-catch etat)))
+      (unless association (error "Squash-Lisp : Can't return from block ~w, it is inexistant or not lexically apparent." block-name))
+      (squash-lisp `(progn (setq ,(cddr association) value) (go ,(cadr association))))))
+   
+   
+   ;; Le traitement de tagbody/go est similaire pour sortir d'un tag, puis on jmp directement sur le tag de destination (vu qu'il est au même niveau).
+   ((tagbody :body _*)
+    (let ((spliced-body (simple-splice-up-tagbody body)))
+      (let ((res nil)
+            (the-body nil)
+            (unwind-catch-marker-sym (make-symbol "UNWIND-CATCH-MARKER-SYM"))
+            (new-etat etat)
+            (unique-label-sym nil)
+        (dolist (zone spliced-body)
+          (setq unique-label-sym (make-symbol (format nil "~a" (car zone))))
+          (setq new-etat (push-local new-etat (car zone) 'squash-tagbody-catch (cons unwind-catch-marker-sym unique-label-sym)))
+          (setf (car zone) unique-label-sym))
+        ;; Définition de (unwind-catch name &rest body) :
+        ;; `(let ((,name (make-unwind-marker))) ,body)
+        `(unwind-catch ,unwind-catch-marker-sym
+                       ,@(progn (dolist (zone spliced-body)
+                                  (setq the-body ,@)
+                                  (push `(tagbody-label (car zone)) res)
+                                  (push (squash-lisp `(progn (cdr zone)) new-etat) res))
+                                `(simple-tagbody ,@(cdr (reverse res)))))))) ;; cdr pour zapper le tout premier (tagbody-label)
+
+   ((go :target $$)
+    (let ((association (assoc-etat target 'squash-tagbody-catch etat)))
+      (unless association (error "Squash-Lisp : Can't go to label ~w, it is inexistant or not lexically apparent." target))
+      `(progn (unwind ,(cadr association)) (simple-go ,(cddr association)))))
+   
+   ;; Le traitement de catch/throw est similaire, sauf que le pointeur est simplement un pointeur vers l'objet utilisé pour le catch / throw.
+   
+   ;; Les constantes sont renvoyées telles qu'elles
+   ((? or numberp stringp)
+    expr)
+   ;; TODO : nil et t devraient être des defconst
+   (nil
+    nil)))
 
 #|
 
@@ -76,7 +211,8 @@ Exemple :
 Le comportement des fonctions et des macros expliqué ci-dessous permet de prouver que la capture s'effectue sur toutes les variables et non pas seulement celles qui paraissent être accessibles :
 (defmacro introspect-closure (get-variable closure)
   `(progn (defmacro introspect () '(print ,get-variable))
-          (funcall ,closure)))
+          (funcall ,closure)
+          (defun introspect () nil)))
 (introspect-closure a (cdr cl1))
 => 1 ;; (print a)
 => 3
@@ -97,7 +233,8 @@ Pourtant ces listes d'un million d'éléments semblent inaccessibles, sauf par n
 ;; Comportement des fonctions et des macros
 Si une macro est rencontrée, elle est expansée
 Si un appel de fonction est rencontré, la fonction est appellée telle qu'elle
-Si une fonction est redéfinie en tant que macro, tous les appels de fonction qui lui correspondent sont transformés en appels de macro (expansion à la volée). On peut alors redéfinir la  macro en macro ou en fonction, au choix, plusieurs fois, les appels suivent "intuitivement". (Ça existe encore ça l'intuition ?)
+Si une fonction est redéfinie en tant que macro, tous les appels de fonction qui lui correspondent sont transformés en appels de macro (expansion à la volée).
+On peut alors redéfinir la macro en macro ou en fonction, au choix, plusieurs fois, les appels suivent "intuitivement". (Ça existe encore ça l'intuition ?)
 Si une macro "rencontrée initialement" est redéfinie en tant que fonction, les appels qui ont déjà été "expansés initialement" ne sont pas redéfinis.
 Dans la structure suivante, la règle du "rencontrée initialement" est bien appliquée, la macro n'est pas ré-expansée :
 (defmacro mcr (x) `(list ',x 'y))
@@ -230,29 +367,29 @@ compiler-meval transforme le eval-when en progn si sa situation contient :execut
 
 NOTE : lorsqu'on rencontre la macro declaim au top-level, la proclamation est prise en compte.
 
-- Si on rencontre EVAL-WHEN,
-  - Au top-level,
-    - Pour chaque form du body,
-      - Si la situation contient :compile-toplevel, le form est évalué dans compiler-meval.
-      - Si la situation contient :load-toplevel, le form est compilé (après évaluation dans compiler-meval s'il y a lieu).
-      - Lorsqu'un eval-when au top-level contient des eval-when directement sous lui, ils sont traités comme s'ils étaient directement au top-level.
-  - Ailleurs
-    - Si la situation contient :load-toplevel, le eval-when est remplacé par son body (TODO : À VÉRIVFIER !).
-- Si on rencontre un defmacro
-  - On demande à compiler-meval de l'exécuter. TODO : doit-on le faire uniquement au top-level ?.
-- Si on rencontre un macrolet
-  - On fait une copie de l'état de compiler-meval
-  - On lui demande d'exécuter les définitions
-  - On évalue le body avec ce nouvel état
-  - On continue avec l'ancien état
-- Si on gère le symbol-macrolet
-  - Le fonctionnement est le même que pour le macrolet
-  - Lorsqu'on rencontre un symbole, on regarde s'il a une définition de type symbol-macrolet
-- Si on rencontre une macro définie dans l'environnement de compiler-meval,
-  1) On demande à compiler-meval d'expanser la macro sur un niveau.
-  2) On re-lance la transformation (eval-when / defmacro / appel de macro / ...) sur le résultat s'il y a a eu expansion.
-- S'occuper du cas du lambda et des autres mot-clés bizarres (ne pas faire de macro-expansion dessus).
-- Dans les autres cas, on transforme récursivement l'expression.
+| - Si on rencontre un defmacro (au toplevel ou ailleurs).
+|   - On demande à compiler-meval de l'exécuter.
+| - Si on rencontre EVAL-WHEN,
+|   - Au top-level,
+|     - Pour chaque form du body,
+|       - Si la situation contient :compile-toplevel, le form est évalué dans compiler-meval.
+|       - Si la situation contient :load-toplevel, le form est compilé (après évaluation dans compiler-meval s'il y a lieu).
+|       - Lorsqu'un eval-when au top-level contient des eval-when directement sous lui, ils sont traités comme s'ils étaient directement au top-level.
+|   - Ailleurs
+|     - Si la situation contient :load-toplevel, le eval-when est remplacé par son body (TODO : À VÉRIVFIER !).
+| - Si on rencontre un macrolet
+|   - On fait une copie de l'état de compiler-meval
+|   - On lui demande d'exécuter les définitions
+|   - On évalue le body avec ce nouvel état
+|   - On continue avec l'ancien état
+| - Si on gère le symbol-macrolet
+|   - Le fonctionnement est le même que pour le macrolet
+|   - Lorsqu'on rencontre un symbole, on regarde s'il a une définition de type symbol-macrolet
+| - Si on rencontre une macro définie dans l'environnement de compiler-meval,
+|   1) On demande à compiler-meval d'expanser la macro sur un niveau.
+|   2) On re-lance la transformation (eval-when / defmacro / appel de macro / ...) sur le résultat s'il y a a eu expansion.
+| - S'occuper du cas du lambda et des autres mot-clés bizarres (ne pas faire de macro-expansion dessus).
+| - Dans les autres cas, on transforme récursivement l'expression.
 
 ;; Comportement des variables globales et spéciales
 Lorsqu'une variable est utilisée mais ne correspond à aucune liaison (établie par let, …), cette utilisation fait référence
