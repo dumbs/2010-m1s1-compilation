@@ -1,6 +1,10 @@
 (require 'match "match")
 (require 'util "util")
 
+;; TODO : Quand l'ancienne valeur d'une variable spéciale est sauvegardée par un let, si il y a un throw pendant ce temps-là, elle n'est pas restaurée.
+;;        CLTL 7.11 : Intervening dynamic bindings of special variables and catch tags are undone.
+;; TODO : Les variables spéciales ne sont probablement pas correctement capturées par un lambda.
+
 (defmacro etat-local (etat)
   `(car ,etat))
 
@@ -260,7 +264,7 @@
 (defun splice-up-tagbody-1 (todo-body body result)
   (if (endp todo-body)
       (acons nil body result)
-    (if (symbolp (car todo-body))
+    (if (or (symbolp (car todo-body)) (numberp (car todo-body)))
         (splice-up-tagbody-1 (cdr todo-body)
                              body
                              (acons (car todo-body) body result))
@@ -717,7 +721,11 @@ Mini-meval sera appellé sur des morceaux spécifiques du fichier source. Il fau
   1)
 
 (deftest (mini-meval tagbody)
-  (mini-meval '(tagbody foo 1 bar 2 baz 3))
+  (mini-meval '(let ((x 0)) (tagbody foo (setq x 1) (go 42) bar (setq x 2) 42) x))
+  1)
+
+(deftest (mini-meval tagbody)
+  (mini-meval '(tagbody foo (list 1) 42 (list 2) baz (list 3)))
   nil)
 
 (deftest (mini-meval block)

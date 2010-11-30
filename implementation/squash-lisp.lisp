@@ -11,7 +11,7 @@
        (when (endp body)
          (push (reverse res) all-res)
          (go end))
-       (when (and (car body) (symbolp (car body)))
+       (when (and (car body) (or (symbolp (car body)) (numberp (car body))))
          (push (reverse res) all-res)
          (setq res (list (car body)))
          (setq body (cdr body))
@@ -118,26 +118,29 @@
             (the-body nil)
             (unwind-catch-marker-sym (make-symbol "UNWIND-CATCH-MARKER-SYM"))
             (new-etat etat)
-            (unique-label-sym nil)
+            (unique-label-sym nil))
         (dolist (zone spliced-body)
           (setq unique-label-sym (make-symbol (format nil "~a" (car zone))))
           (setq new-etat (push-local new-etat (car zone) 'squash-tagbody-catch (cons unwind-catch-marker-sym unique-label-sym)))
           (setf (car zone) unique-label-sym))
         ;; Définition de (unwind-catch name &rest body) :
         ;; `(let ((,name (make-unwind-marker))) ,body)
-        `(unwind-catch ,unwind-catch-marker-sym
-                       ,@(progn (dolist (zone spliced-body)
-                                  (setq the-body ,@)
-                                  (push `(tagbody-label (car zone)) res)
-                                  (push (squash-lisp `(progn (cdr zone)) new-etat) res))
-                                `(simple-tagbody ,@(cdr (reverse res)))))))) ;; cdr pour zapper le tout premier (tagbody-label)
-
+        `(let ((,unwind-catch-marker-sym (make-unwind-marker)))
+           (unwind-catch ,unwind-catch-marker-sym
+                         ,@(progn (dolist (zone spliced-body)
+                                    (setq the-body ,@)
+                                    (push `(tagbody-label (car zone)) res) 
+                                    (push (squash-lisp `(progn (cdr zone)) new-etat) res))
+                                  `(simple-tagbody ,@(cdr (reverse res))))))))) ;; cdr pour zapper le tout premier (tagbody-label)
+   
    ((go :target $$)
     (let ((association (assoc-etat target 'squash-tagbody-catch etat)))
       (unless association (error "Squash-Lisp : Can't go to label ~w, it is inexistant or not lexically apparent." target))
       `(progn (unwind ,(cadr association)) (simple-go ,(cddr association)))))
    
    ;; Le traitement de catch/throw est similaire, sauf que le pointeur est simplement un pointeur vers l'objet utilisé pour le catch / throw.
+   ((catch :tag tag :body _*)
+    
    
    ;; Les constantes sont renvoyées telles qu'elles
    ((? or numberp stringp)
