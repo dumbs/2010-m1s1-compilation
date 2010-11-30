@@ -33,6 +33,161 @@
 ;; (defmatch squash-lisp (:name _ :params _*) `(:call ,name ,@(mapcar #'squash-lisp params)))
 ;; (defmatch squash-lisp (:x . _)             (error "Squash-Lisp ne sait pas gérer : ~w" x))
 
+#|
+Notes sur l'implémentation d'unwind.
+Tous les lets qui aparaissent dans un appel de fonction sont regrouppés en un seul. Donc à un appel de fonction correspond un "gros" segment de pile.
+Après la mise en place de ce segment de pile, le code est exécuté.
+
+TODO / NOTE pour la suite : on peut se passer des marker-* si on peut s'assurer qu'entre un end-frame et le begin-frame qui suit, il n'y a QUE des unwind-protect, unwind-catch etc.
+Donc uniquement des adresses de portions de code généré par le compilateur, pas de "vrais" objets, donc on est sûr qu'il n'y aura pas de confusion entre un "vrai" objet
+et une cible mise en place par unwind-catch.
+
+Lorsqu'on rencontre une structure de contrôle comme la suivante :
+(unwind-catch object body catch-code)
+
+Elle est compilée ainsi :
+
+push @catch-code
+[compile object]
+push r0
+push @marker-unwind-destination
+[compile body]
+jmp @after-catch-code
+@catch-code
+[compile catch-code]
+@after-catch-code
+
+De plus, un (unwind-protect body protect-code) est compilé ainsi :
+push @protect-code
+push @marker-unwind-protect
+[compile body]
+jmp @after-protect-code
+@protect-code
+[compile protect-code]
+jmp @start-unwind
+@after-protect-code
+
+Et enfin, (unwind object) est compilé ainsi :
+[compile object]
+push r0
+jsr @find-unwind-destination
+jmp @start-unwind
+
+Et une fonction (lambda nb-let-vars body) est compilée ainsi
+<jsr @function> => push ip; jmp @function
+
+@function
+mov sp r0 ;; begin-frame : Va avec le marker-end-frame
+push bp
+mov sp, bp ;; sp -> bp
+add sp, [nb-let-vars]
+push r0                  ;; Permet à unwind de sauter directement jusqu'au begin-frame.
+push @marker-end-frame   ;; On peut l'ommetre pour accélérer les appels de fonction et/ou
+                         ;; quand il n'y a pas de marker-unwind-* à la suite.
+;; IMPORTANT : effacer tout le segment de pile _SI_ on n'utilise pas begin/end-frame
+;; (car sinon il peut y avoir des destinations / protect d'unwind qui traînent encore).
+[body]
+sub sp, [nb-let-vars]
+pop bp
+
+Les "fonctions" find-unwind-destination et start-unwind :
+
+@singleton-unwind-destination
+db 0
+db 0
+@marker-unwind-destination
+db 0
+db 0
+@marker-unwind-protect
+db 0
+db 0
+@marker-end-frame
+db 0
+db 0
+
+;; fud == find-unwind-destination
+@find-unwind-destination
+mov sp r1
+@fud-loop
+cmp sp 3                    ;; Ne pas passer en-dessous de 0.
+jpe @unwind-not-found-error ;; Ne pas passer en-dessous de 0.
+pop r2
+cmp r2 @marker-end-frame
+jeq @fud-skip-frame
+cmp r2 @marker-unwind-destination
+jne @fud-loop
+pop r2
+cmp r2 r0
+pop r2       ;; Récupérer l'adresse de retour
+mov @nil *sp ;; écraser l'adresse de retour avec @nil pour désactiver la cible.
+jne @fud-loop
+;; fud-found
+cmp r2 @nil  ;; Cible désactivée ?
+jeq @unwind-inbetween-error
+mov sp @singleton-unwind-destination
+mov r1 sp ;; On remonte en haut de la pile
+ret
+
+@fud-skip-frame
+pop r2
+mov r2 sp
+jmp @fud-loop
+
+@unwind-not-found-error
+;; error : cant unwind to this object, the return point doesn't exist anymore.
+halt
+
+@unwind-not-anymore-error
+;; error : cant unwind to this object, the return point has already been passed by a previous unwind.
+halt
+
+@start-unwind
+;; TODO
+;; su == start-unwind
+@su-loop
+cmp sp @singleton-unwind-destination
+jeq @su-stop
+pop r0
+cmp r0 @marker-end-frame
+jeq @fud-skip-frame
+cmp r0 @marker-unwind-protect
+jne @su-loop
+pop r0
+jmp *r0
+
+@su-skip-frame
+pop r0
+mov r0 sp
+jmp @su-loop
+
+@su-stop
+pop r0
+jmp *r0
+
+On a donc une pile de cette forme (les vieilles données sont en haut) :
+** [stack-frame]
+== BP ==
+   [variable foo]
+   [variable bar]
+   [variable ...]
+** [unwind-protect]
+   [protect-code à l'adresse 1234]
+** [unwind-catch]
+   [objet]
+   [code unwind-catch à l'adresse 1111]
+** [unwind-protect]
+   [protect-code à l'adresse 2222]
+** [unwind-protect]
+   [protect-code à l'adresse 3333]
+** [unwind-catch]
+   [objet]
+   [code unwind-catch à l'adresse 4444]
+** [unwind-protect]
+   [protect-code à l'adresse 5555]
+== SP ==
+
+|#
+
 (defun squash-lisp (expr &optional (at-toplevel t) (etat (list nil nil nil)))
   (cond-match
    expr
