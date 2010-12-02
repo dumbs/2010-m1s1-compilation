@@ -5,7 +5,7 @@
 (defvar asm-fixnum-size 32)
 (defvar asm-max-fixnum (expt 2 asm-fixnum-size))
 (defun type-number (type)
-  (position type '(fixnum bignum symbol string cons nil)))
+  (position type '(placeholder fixnum bignum symbol string cons nil)))
 (defvar label-ctr 0)
 
 (defmacro fasm (&rest stuff)

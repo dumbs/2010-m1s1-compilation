@@ -1,5 +1,10 @@
 (require 'mini-meval "implementation/mini-meval")
 
+;; TODO !!!
+;; TODO !!! Utiliser une pile descendante (donc adapter les calculs pour unwind), sinon on n'aura pas la compatibilité x86
+;; TODO !!!
+
+
 ;; lisp2li simpliste pour le compilateur. On fusionnera les deux plus tard.
 
 (defun simple-splice-up-tagbody (body)
@@ -43,7 +48,7 @@ Donc uniquement des adresses de portions de code généré par le compilateur, p
 et une cible mise en place par unwind-catch.
 
 Lorsqu'on rencontre une structure de contrôle comme la suivante :
-(unwind-catch object body catch-code)
+(unwind-catch object body [catch-code]?)
 
 Elle est compilée ainsi :
 
@@ -52,10 +57,10 @@ push @catch-code
 push r0
 push @marker-unwind-destination
 [compile body]
-jmp @after-catch-code
-@catch-code
-[compile catch-code]
-@after-catch-code
+jmp @after-catch-code  ;; seulement si catch-code est présent
+@catch-code            ;; seulement si catch-code est présent
+[compile catch-code]   ;; seulement si catch-code est présent
+@after-catch-code      ;; seulement si catch-code est présent
 
 De plus, un (unwind-protect body protect-code) est compilé ainsi :
 push @protect-code
@@ -67,10 +72,23 @@ jmp @after-protect-code
 jmp @start-unwind
 @after-protect-code
 
+(half-unwind object post-unwind-code) est compilé ainsi :
+jsr @find-unwind-destination
+push @post-unwind-code ;; On "push" after-unwind-code comme cible au lieu de l'ancienne.
+add 2 sp                ;; On "re-push" l'objet et le marqueur, mettre 1 si on n'a pas de marqueur.
+mov sp @singleton-unwind-destination
+mov r1 sp ;; On remonte en haut de la pile
+jmp @start-unwind
+@post-unwind-code
+[compile post-unwind-code] ;; DOIT contenir un jump !
+halt ;; Sinon, on quite "brutalement"
+
 Et enfin, (unwind object) est compilé ainsi :
 [compile object]
 push r0
 jsr @find-unwind-destination
+mov sp @singleton-unwind-destination
+mov r1 sp ;; On remonte en haut de la pile
 jmp @start-unwind
 
 Et une fonction (lambda nb-let-vars body) est compilée ainsi
@@ -93,8 +111,8 @@ pop bp
 Les "fonctions" find-unwind-destination et start-unwind :
 
 @singleton-unwind-destination
-db 0
-db 0
+db 0 ;; 0 = (type-number placeholder)
+db 0 ;; Toujours au moins deux octets.
 @marker-unwind-destination
 db 0
 db 0
@@ -118,14 +136,12 @@ cmp r2 @marker-unwind-destination
 jne @fud-loop
 pop r2
 cmp r2 r0
-pop r2       ;; Récupérer l'adresse de retour
-mov @nil *sp ;; écraser l'adresse de retour avec @nil pour désactiver la cible.
+pop r2        ;; Récupérer l'adresse de retour
+mov @nil *sp  ;; écraser l'adresse de retour avec @nil pour désactiver la cible.
 jne @fud-loop
 ;; fud-found
 cmp r2 @nil  ;; Cible désactivée ?
-jeq @unwind-inbetween-error
-mov sp @singleton-unwind-destination
-mov r1 sp ;; On remonte en haut de la pile
+jeq @fud-loop
 ret
 
 @fud-skip-frame
@@ -135,10 +151,6 @@ jmp @fud-loop
 
 @unwind-not-found-error
 ;; error : cant unwind to this object, the return point doesn't exist anymore.
-halt
-
-@unwind-not-anymore-error
-;; error : cant unwind to this object, the return point has already been passed by a previous unwind.
 halt
 
 @start-unwind
@@ -165,25 +177,27 @@ pop r0
 jmp *r0
 
 On a donc une pile de cette forme (les vieilles données sont en haut) :
-** [stack-frame]
+** [old bp] ;; adresse = 987
 == BP ==
    [variable foo]
    [variable bar]
    [variable ...]
-** [unwind-protect]
+   [begin-frame à l'adresse 987]
+** [end-frame]
    [protect-code à l'adresse 1234]
-** [unwind-catch]
-   [objet]
-   [code unwind-catch à l'adresse 1111]
 ** [unwind-protect]
+   [code unwind-catch à l'adresse 1111]
+   [objet]
+** [unwind-catch]
    [protect-code à l'adresse 2222]
 ** [unwind-protect]
    [protect-code à l'adresse 3333]
-** [unwind-catch]
+** [unwind-protect]
    [objet]
    [code unwind-catch à l'adresse 4444]
-** [unwind-protect]
+** [unwind-catch]
    [protect-code à l'adresse 5555]
+** [unwind-protect]
 == SP ==
 
 |#
@@ -247,14 +261,16 @@ On a donc une pile de cette forme (les vieilles données sont en haut) :
    ;; Lorsqu'on rentre dans un block, on met sur la pile un marqueur spécial avec un pointeur vers un objet créé à l'exécution.
    ((block :block-name $$ :body _*)
     (let ((retval-sym (make-symbol "RETVAL"))
-          (end-sym (make-symbol "END-BLOCK")))
+          (block-id-sym (make-symbol "BLOCK-ID")))
       (squash-lisp
-       `(let ((,retval-sym nil))
-          (tagbody
-             (progn ,@body)
-             ,end-sym)
+       `(let ((,retval-sym nil)
+              ;; Il y a un peu de redondance, car block-id-sym
+              ;; stocké dans le let et dans le unwind-catch
+              (,block-id-sym (cons nil nil)))
+          (unwind-catch ,block-id-sym
+                        (progn ,@body))
           ,retval-sym)
-       (push-local etat block-name 'squash-block-catch (cons end-sym retval-sym)))))
+       (push-local etat block-name 'squash-block-catch (cons block-id-sym retval-sym)))))
    
    ;; Les return-from <nom> qui sont accessibles lexicalement sont remplacés par un (unwind <l'objet>)
    ;; Unwind remonte la pile jusqu'à trouver le marqueur spécial, tout en exécutant les unwind-protect éventuels.
@@ -263,7 +279,8 @@ On a donc une pile de cette forme (les vieilles données sont en haut) :
    ((return-from :block-name $$ :value _)
     (let ((association (assoc-etat block-name 'squash-block-catch etat)))
       (unless association (error "Squash-Lisp : Can't return from block ~w, it is inexistant or not lexically apparent." block-name))
-      (squash-lisp `(progn (setq ,(cddr association) value) (go ,(cadr association))))))
+      (squash-lisp `(progn (setq ,(cddr association) value)
+                           (unwind ,(cadr association))))))
    
    
    ;; Le traitement de tagbody/go est similaire pour sortir d'un tag, puis on jmp directement sur le tag de destination (vu qu'il est au même niveau).
@@ -278,28 +295,68 @@ On a donc une pile de cette forme (les vieilles données sont en haut) :
           (setq unique-label-sym (make-symbol (format nil "~a" (car zone))))
           (setq new-etat (push-local new-etat (car zone) 'squash-tagbody-catch (cons unwind-catch-marker-sym unique-label-sym)))
           (setf (car zone) unique-label-sym))
-        ;; Définition de (unwind-catch name &rest body) :
-        ;; `(let ((,name (make-unwind-marker))) ,body)
-        `(let ((,unwind-catch-marker-sym (make-unwind-marker)))
-           (unwind-catch ,unwind-catch-marker-sym
-                         ,@(progn (dolist (zone spliced-body)
-                                    (setq the-body ,@)
-                                    (push `(tagbody-label (car zone)) res) 
-                                    (push (squash-lisp `(progn (cdr zone)) new-etat) res))
-                                  `(simple-tagbody ,@(cdr (reverse res))))))))) ;; cdr pour zapper le tout premier (tagbody-label)
+        (squash-lisp
+         `(let ((,tagbody-id-sym (cons nil nil)))
+            (unwind-catch ,tagbody-id-sym
+                          (progn
+                            ,@(progn (dolist (zone spliced-body)
+                                       (push `(jump-label (car zone)) res) 
+                                       (push `(progn (cdr zone)) res))
+                                     ;; (cdr (reverse …)) pour zapper le tout premier (jump-label …)
+                                     (cdr (reverse res)))))
+            nil)
+         new-etat))))
    
    ((go :target $$)
     (let ((association (assoc-etat target 'squash-tagbody-catch etat)))
       (unless association (error "Squash-Lisp : Can't go to label ~w, it is inexistant or not lexically apparent." target))
-      `(progn (unwind ,(cadr association)) (simple-go ,(cddr association)))))
+      (squash-lisp `(progn (half-unwind ,(cadr association)
+                                        (jump ,(cddr association)))))))
    
    ;; Le traitement de catch/throw est similaire, sauf que le pointeur est simplement un pointeur vers l'objet utilisé pour le catch / throw.
-   ((catch :tag tag :body _*)
+   ((catch :tag _ :body _*)
+    (squash-lisp
+     ;; TODO : ajouter une variable globale singleton-catch-retval
+     `(unwind-catch ,tag (progn ,@body) singleton-catch-retval)))
+
+   ((throw :tag _ :result _)
+    (squash-lisp
+     `(progn (setq singleton-catch-retval value)
+             (unwind ,tag (progn ,@body)))))
+   
+   ;; Simplification du unwind-protect
+   ((unwind-protect :body _ :a-cleanup _ :other-cleanups _+)
+    `(unwind-protect ,(squash-lisp body)
+       (progn ,(squash-lisp a-cleanup) ,@(squash-lisp other-cleanups))))
+   
+   ((unwind-protect :body _ :a-cleanup _)
+    `(unwind-protect ,(squash-lisp body)
+       ,(squash-lisp a-cleanup)))
     
+   ((unwind-catch :object _ :body _ :catch-code _?)
+    (if catch-code
+        `(unwind-catch ,(squash-lisp object)
+                       ,(squash-lisp body)
+                       ,(squash-lisp (car catch-code)))
+        `(unwind-catch ,(squash-lisp object)
+                       ,(squash-lisp body))))
+   
+   ((unwind :object _)
+    `(unwind ,(squash-lisp object)))
+   
+   ((half-unwind :object _ :post-unwind-code _)
+    `(half-unwind ,(squash-lisp object) ,(squash-lisp post-unwind-code)))
+   
+   ((jump-label :name _)
+    expr)
+   
+   ((jump :dest _)
+    expr)
    
    ;; Les constantes sont renvoyées telles qu'elles
    ((? or numberp stringp)
     expr)
+   
    ;; TODO : nil et t devraient être des defconst
    (nil
     nil)))
