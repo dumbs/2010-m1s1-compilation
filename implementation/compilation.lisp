@@ -101,6 +101,21 @@
   (asm-once 'code "main"
             (mapcar #'my-compile-1 body)))
 
+
+;; if
+((if :condition _ :si-vrai _ :si-faux _)
+ (let ((else-label (gen-label "else"))
+       (end-if-label (gen-label "end-if")))
+   (compile condition)
+   (fasm "cmp r0 @nil")
+   (fasm "jeq @~a" else-label)
+   (compile si-vrai)
+   (fasm "jmp @~a" end-if-label)
+   (fasm "label @~a" else-label)
+   (compile si-faux)
+   (fasm "label @~a" end-if-label)))
+   
+   
 ;;; Exemples
 
 (my-compile '(1 2 3))

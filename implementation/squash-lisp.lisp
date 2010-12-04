@@ -1,5 +1,7 @@
 (require 'mini-meval "implementation/mini-meval")
 
+;; TODO : emballer le résultat de squash-lisp dans un (macrolet ...) pour les "special-operator" qu'on rajoute.
+
 ;; TODO !!!
 ;; TODO !!! Utiliser une pile descendante (donc adapter les calculs pour unwind), sinon on n'aura pas la compatibilité x86
 ;; TODO !!!
@@ -57,8 +59,11 @@ push @catch-code
 push r0
 push @marker-unwind-destination
 [compile body]
-jmp @after-catch-code  ;; seulement si catch-code est présent
-@catch-code            ;; seulement si catch-code est présent
+pop r2
+pop r2
+pop r2
+jmp @after-catch-code
+@catch-code
 [compile catch-code]   ;; seulement si catch-code est présent
 @after-catch-code      ;; seulement si catch-code est présent
 
@@ -66,6 +71,8 @@ De plus, un (unwind-protect body protect-code) est compilé ainsi :
 push @protect-code
 push @marker-unwind-protect
 [compile body]
+pop r2
+pop r2
 jmp @after-protect-code
 @protect-code
 [compile protect-code]
@@ -74,8 +81,8 @@ jmp @start-unwind
 
 (half-unwind object post-unwind-code) est compilé ainsi :
 jsr @find-unwind-destination
-push @post-unwind-code ;; On "push" after-unwind-code comme cible au lieu de l'ancienne.
-add 2 sp                ;; On "re-push" l'objet et le marqueur, mettre 1 si on n'a pas de marqueur.
+mov [immediate]@post-unwind-code @singleton-post-unwind-code
+add 3 sp                ;; On "re-push" l'adresse de la cible, l'objet et le marqueur, mettre 2 au lieu de 3 si on n'a pas de marqueur.
 mov sp @singleton-unwind-destination
 mov r1 sp ;; On remonte en haut de la pile
 jmp @start-unwind
@@ -85,7 +92,6 @@ halt ;; Sinon, on quite "brutalement"
 
 Et enfin, (unwind object) est compilé ainsi :
 [compile object]
-push r0
 jsr @find-unwind-destination
 mov sp @singleton-unwind-destination
 mov r1 sp ;; On remonte en haut de la pile
@@ -95,39 +101,42 @@ Et une fonction (lambda nb-let-vars body) est compilée ainsi
 <jsr @function> => push ip; jmp @function
 
 @function
-mov sp r0 ;; begin-frame : Va avec le marker-end-frame
+mov sp, r0 ;; begin-frame : Va avec le marker-end-frame
 push bp
 mov sp, bp ;; sp -> bp
-add sp, [nb-let-vars]
+add [nb-let-vars], sp
 push r0                  ;; Permet à unwind de sauter directement jusqu'au begin-frame.
 push @marker-end-frame   ;; On peut l'ommetre pour accélérer les appels de fonction et/ou
                          ;; quand il n'y a pas de marker-unwind-* à la suite.
 ;; IMPORTANT : effacer tout le segment de pile _SI_ on n'utilise pas begin/end-frame
 ;; (car sinon il peut y avoir des destinations / protect d'unwind qui traînent encore).
 [body]
-sub sp, [nb-let-vars]
+sub sp, [nb-let-vars + 2] ;; ERREUR !
 pop bp
 
 Les "fonctions" find-unwind-destination et start-unwind :
 
+db 0 ;; 0 = (type-number placeholder) ;; devrait être autre chose, pointeur par ex
 @singleton-unwind-destination
-db 0 ;; 0 = (type-number placeholder)
-db 0 ;; Toujours au moins deux octets.
+db4 0
+db 0 ;; 0 = (type-number placeholder) ;; devrait être autre chose, pointeur par ex
+@singleton-post-unwind-code
+db4 0
 @marker-unwind-destination
 db 0
-db 0
+db 0 ;; Toujours au moins deux octets (ou au moins 5 ? j'ai oublié…).
 @marker-unwind-protect
 db 0
-db 0
+db 0 ;; Toujours au moins deux octets (ou au moins 5 ? j'ai oublié…).
 @marker-end-frame
 db 0
-db 0
+db 0 ;; Toujours au moins deux octets (ou au moins 5 ? j'ai oublié…).
 
 ;; fud == find-unwind-destination
 @find-unwind-destination
 mov sp r1
 @fud-loop
-cmp sp 3                    ;; Ne pas passer en-dessous de 0.
+cmp sp 2 ;; ???             ;; Ne pas passer en-dessous de 0.
 jpe @unwind-not-found-error ;; Ne pas passer en-dessous de 0.
 pop r2
 cmp r2 @marker-end-frame
@@ -142,6 +151,7 @@ jne @fud-loop
 ;; fud-found
 cmp r2 @nil  ;; Cible désactivée ?
 jeq @fud-loop
+mov r2 @singleton-post-unwind-code
 ret
 
 @fud-skip-frame
@@ -151,30 +161,26 @@ jmp @fud-loop
 
 @unwind-not-found-error
 ;; error : cant unwind to this object, the return point doesn't exist anymore.
+;; TODO : mettre un code d'erreur dans r2
 halt
 
 @start-unwind
-;; TODO
 ;; su == start-unwind
 @su-loop
-cmp sp @singleton-unwind-destination
-jeq @su-stop
+cmp sp *@singleton-unwind-destination
+jeq *@singleton-post-unwind-code ;; Fin de l'unwind, tout le monde descend !
 pop r0
 cmp r0 @marker-end-frame
-jeq @fud-skip-frame
+jeq @su-skip-frame
 cmp r0 @marker-unwind-protect
 jne @su-loop
 pop r0
-jmp *r0
+jmp r0
 
 @su-skip-frame
 pop r0
 mov r0 sp
 jmp @su-loop
-
-@su-stop
-pop r0
-jmp *r0
 
 On a donc une pile de cette forme (les vieilles données sont en haut) :
 ** [old bp] ;; adresse = 987
@@ -193,8 +199,8 @@ On a donc une pile de cette forme (les vieilles données sont en haut) :
 ** [unwind-protect]
    [protect-code à l'adresse 3333]
 ** [unwind-protect]
-   [objet]
    [code unwind-catch à l'adresse 4444]
+   [objet]
 ** [unwind-catch]
    [protect-code à l'adresse 5555]
 ** [unwind-protect]
