@@ -6,49 +6,43 @@
 ;;     (send vm set-memory 42 5)
 ;;     (send vm get-register R1)
 ;;     (send vm set-register R2 (send vm get-register 42))
-(defun make-vm (size &optional (debug nil))
-  (let* ((memory (make-array size :initial-element 0))
-         (registers `(;; Registres généraux.
-                      (R0 . 0)
-                      (R1 . 0)
-                      (R2 . 0)
-                      ;; Base de la pile.
-                      (BP . 0)
-                      ;; Sommet de la pile.
-                      (SP . 0)
-                      ;; Sommet du cadre de la pile
-                      (FP . 0)
-                      ;; Pointeur de code : fin de la mémoire.
-                      (PC . ,(- size 1))
-                      ;; registres booléens = faux (nil).
-                      (PP . nil)
-                      (EQ . nil)
-                      (PG . nil)
-                      ;; Quand HALT passe à t, on arrête la machine.
-                      (HALT . nil)
-                      ;; Sert uniquement pour le debug
-                      (DEBUG . debug)))
-         (actions `((get-memory . ,(lambda (index) (aref memory index)))
-                    (set-memory . ,(lambda (index value) (setf (aref memory index) value)))
-                    (get-register-list . ,(lambda () (mapcar #'car registers)))
-                    (get-register . ,(lambda (reg) (cdr (assoc reg registers))))
-                    (set-register . ,(lambda (reg value) (setf (cdr (assoc reg registers)) value)))
-                    (size-memory . ,(lambda () (length memory)))
-                    (get-debug-mode . ,(lambda () (cdr (assoc 'DEBUG registers)))))))
-    (lambda (message &rest params)
-      (apply (cdr (assoc message actions)) params))))
+(defun make-vm (size &optional debug)
+  (cons (make-array size :initial-element 0)
+	`(;; Registres généraux.
+	  (R0 . 0)
+	  (R1 . 0)
+	  (R2 . 0)
+	  ;; Base de la pile.
+	  (BP . 0)
+	  ;; Sommet de la pile.
+	  (SP . 0)
+	  ;; Sommet du cadre de la pile
+	  (FP . 0)
+	  ;; Pointeur de code : fin de la mémoire.
+	  (PC . ,(- size 1))
+	  ;; registres booléens = faux (nil).
+	  (PP . nil)
+	  (EQ . nil)
+	  (PG . nil)
+	  ;; Quand HALT passe à t, on arrête la machine.
+	  (HALT . nil)
+	  ;; Sert uniquement pour le debug
+	  (DEBUG . ,debug))))
 
-(defun send (obj &rest params)
-  (apply obj params))
-
-(defun get-memory (vm index) (send vm 'get-memory index))
-(defun set-memory (vm index value) (send vm 'set-memory index value))
-(defun get-register-list (vm) (send vm 'get-register-list))
-(defun get-register (vm register) (send vm 'get-register register))
-(defun set-register (vm register value) (send vm 'set-register register value))
-(defun size-memory (vm) (send vm 'size-memory))
-(defun get-debug-mode (vm) (send vm 'get-debug-mode))
-
+(defun get-memory (vm index)
+  (aref (car vm) index))
+(defun set-memory (vm index value)
+  (setf (aref (car vm) index) value))
+(defun get-register-list (vm)
+  (mapcar #'car (cdr vm)))
+(defun get-register (vm reg)
+  (cdr (assoc reg (cdr vm))))
+(defun set-register (vm reg value)
+  (setf (cdr (assoc reg (cdr vm))) value))
+(defun size-memory (vm)
+  (length (car vm)))
+(defun get-debug-mode (vm)
+  (cdr (assoc 'debug (cdr vm))))
 
 ;; TODO : Reste a ajouter la resolution d'etiquette
 (defun load-asm (asm &optional (stack-size 100) (debug nil))
