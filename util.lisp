@@ -125,6 +125,7 @@
           (flatten (cdr lst) rest (cons (car lst) result)))))
 
 (defun mapcar-append (append function &rest lists)
+  ;; TODO : dérécurser
   (cond ((null lists)
          append)
         ((member nil lists)

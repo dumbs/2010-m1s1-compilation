@@ -1,4 +1,5 @@
 (require 'mini-meval "implementation/mini-meval")
+(require 'match "match")
 
 ;; TODO : emballer le résultat de squash-lisp dans un (macrolet ...) pour les "special-operator" qu'on rajoute.
 
@@ -359,6 +360,18 @@ On a donc une pile de cette forme (les vieilles données sont en haut) :
    ((jump :dest _)
     expr)
    
+   ((let :bindings ((:name $$ :value _)*) :body _)
+	`(let ,(mapcar (lambda (n v) `(,n ,(squash-lisp v))) name value)
+	   ,(squash-lisp body)))
+   
+   ((let :bindings _ :body _*)
+	(squash-lisp `(let ,bindings (progn ,@body))))
+   
+   ;; TODO : simplifier la lambda-list.
+   
+   ((lambda :params _ :body _*)
+	(squash-lisp `(lambda ,params (progn ,@body))))
+   
    ;; Les constantes sont renvoyées telles qu'elles
    ((? or numberp stringp)
     expr)
@@ -367,6 +380,72 @@ On a donc une pile de cette forme (les vieilles données sont en haut) :
    (nil
     nil)))
 
+(defun squash-lisp-3 (expr &optional env)
+  "Détecte les variables capturées."
+  (cond-match
+   expr
+   
+   ((let :bindings ((:name $$ :value _)*) :body _)
+    (let ((new-env (cons (mapcar-append (car env) (lambda (x) `(,x nil)) name)
+                         (cdr env))))
+      `(let ,(mapcar (lambda (x) (squash-lisp-3 x new-env)) bindings)
+         ,(squash-lisp-3 body new-env))))
+   
+   (((? (eq x 'let*)) :bindings ((:name $$ :value _)*) :body _)
+    (let ((new-local-env (car env)))
+      `(let ,(mapcar (lambda (var val) (prog1 (squash-lisp-3 x (cons new-local-env (cdr env)))
+                                         (push `(x nil) new-local-env)))
+                     name value)
+         ,(squash-lisp-3 body new-env))))
+   
+   (let ((new-env (cons (mapcar-append (car env) (lambda (x) (list x nil)) name) (cdr env))))
+     `(let ,(mapcar (lambda (x) (squash-lisp-3 x new-env)) bindings)
+        ,(squash-lisp-3 body new-env))))
+  
+  ((lambda :params ($$*) :body _)
+   `(lambda ,params ;; TODO
+      ,(squash-lisp-3 body
+                      (cons nil
+                            (cons (mapcar-append (car env)
+                                                 (lambda (x) (list x nil))
+                                                 (delete '&rest params))
+                                  (cdr env))))))
+  ((:fun $$ :args _*)
+   (cons fun (mapcar (lambda (x) (squash-lisp-3 x env)) args)))
+  ($$ ;; Utilisation d'une variable, à mettre tout à la fin !
+   (let ((res (list 'maybe-indirection expr))
+         (variable (assoc expr (car env)))
+         (search-env env)
+         (references nil))
+     (if variable ;; Variable trouvée dans l'environnement local
+         (if (second variable)
+             `(indirection ,expr)
+             (progn (push res (cddr variable))
+                    res))
+         (progn
+           (tagbody
+            search-loop
+              (setq search-env (cdr search-env))
+              (when (endp search-env)
+                ;; TODO globals
+                (error "Globals not implemented yet !~&expr = ~a~&env = ~a" expr env)
+                (go fin))
+              (setq variable (assoc expr (car search-env))) ;; Rechercher dans cet environnement
+              (unless variable
+                (go search-loop)) ;; Rechercher dans l'environnement suivant si on ne trouve pas.
+              (when (second variable)
+                (go fin)) ;; La variable est déjà marquée comme capturée
+              (setq references (cddr variable))
+              (setf (cdr variable) '(t)) ;; Marquer la variable comme étant capturée
+            convert-to-captured-loop
+              (when (endp references) (go fin))
+              (setf (caar references) 'indirection) ;; 'maybe-indirection -> 'indirection .
+              (setq references (cdr references))
+              (go convert-to-captured-loop)
+            fin
+              (setq res (list 'indirection expr)))
+           res))))))
+         
 #|
 
 ;; Formes pouvant créer des variables capturables :
