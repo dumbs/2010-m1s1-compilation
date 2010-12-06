@@ -1,3 +1,6 @@
+;; 
+;; TODO !! ATTENTION !! Quand onc récupère des données qui font 1 octet de large, en fait on récupère 4 octets !
+;; 
 (require 'match "match")
 (require 'util "util")
 (require 'squash-lisp "implementation/squash-lisp")

@@ -200,4 +200,13 @@
           (go ,loopsym)
         ,endsym))))
 
+(defun length=1 (l)
+  (and (consp l)
+       (not (cdr l))))
+
+(defun length=2 (l)
+  (and (consp l)
+       (consp (cdr l))
+       (not (cddr l))))
+
 (provide 'util)

@@ -209,19 +209,16 @@ On a donc une pile de cette forme (les vieilles données sont en haut) :
 
 |#
 
-(defun squash-lisp (expr &optional (at-toplevel t) (etat (list nil nil nil)))
+(defun squash-lisp-1 (expr &optional (at-toplevel t) (etat (list nil nil nil)))
   (cond-match
    expr
    ;; - Si on rencontre une macro définie dans l'environnement de compiler-meval,
    ;;   1) On demande à compiler-meval d'expanser la macro sur un niveau.
    ;;   2) On re-lance la transformation (eval-when / defmacro / appel de macro / ...) sur le résultat s'il y a a eu expansion.
    ((:name $$ :params _*)
-    (print etat)
-    (print name)
     (let ((definition (assoc-etat name 'macro etat)))
-      (print definition)
       (if definition
-          (squash-lisp (apply (cdr definition) params) at-toplevel etat)
+          (squash-lisp-1 (apply (cdr definition) params) at-toplevel etat)
           (else))))
    
    ;; - Si on rencontre EVAL-WHEN,
@@ -236,7 +233,7 @@ On a donc une pile de cette forme (les vieilles données sont en haut) :
     (when (and at-toplevel (member :compile-toplevel situations))
       (mini-meval `(progn ,@body) etat))
     (when (member :load-toplevel situations)
-      (squash-lisp body at-toplevel etat)))
+      (squash-lisp-1 body at-toplevel etat)))
    
    ;; - Si on rencontre un defmacro (au toplevel ou ailleurs).
    ;;   - On demande à compiler-meval de l'exécuter.
@@ -250,7 +247,7 @@ On a donc une pile de cette forme (les vieilles données sont en haut) :
    ;;   - On continue avec l'ancien état
    ((macrolet :definitions ((:name $ :lambda-list @ :mbody _*)*) :body _*)
     (let ((get-etat (make-symbol "GET-ETAT")))
-      (squash-lisp
+      (squash-lisp-1
        `(progn ,@body)
        at-toplevel
        (mini-meval `(macrolet ,definitions ,get-etat) (push-local etat 'trapdoor 'squash-trapdoor get-etat)))))
@@ -259,17 +256,19 @@ On a donc une pile de cette forme (les vieilles données sont en haut) :
    ;;   - Le fonctionnement est le même que pour le macrolet
    ;;   - Lorsqu'on rencontre un symbole, on regarde s'il a une définition de type symbol-macrolet
    ((symbol-macrolet . _)
-    (error "squash-lisp Symbol-macrolet n'est pas implémenté."))
+    (error "squash-lisp-1 : Symbol-macrolet n'est pas implémenté."))
 
-   ;; TODO : squash le progn
+   ((progn :single-body _)
+    (squash-lisp-1 single-body at-toplevel etat))
+   
    ((progn :body _*)
-    (cons 'progn (mapcar (lambda (form) (squash-lisp form at-toplevel etat)) body)))
+    (cons 'progn (mapcar (lambda (form) (squash-lisp-1 form at-toplevel etat)) body)))
    
    ;; Lorsqu'on rentre dans un block, on met sur la pile un marqueur spécial avec un pointeur vers un objet créé à l'exécution.
    ((block :block-name $$ :body _*)
     (let ((retval-sym (make-symbol "RETVAL"))
           (block-id-sym (make-symbol "BLOCK-ID")))
-      (squash-lisp
+      (squash-lisp-1
        `(let ((,retval-sym nil)
               ;; Il y a un peu de redondance, car block-id-sym
               ;; stocké dans le let et dans le unwind-catch
@@ -277,6 +276,7 @@ On a donc une pile de cette forme (les vieilles données sont en haut) :
           (unwind-catch ,block-id-sym
                         (progn ,@body))
           ,retval-sym)
+       nil
        (push-local etat block-name 'squash-block-catch (cons block-id-sym retval-sym)))))
    
    ;; Les return-from <nom> qui sont accessibles lexicalement sont remplacés par un (unwind <l'objet>)
@@ -285,167 +285,388 @@ On a donc une pile de cette forme (les vieilles données sont en haut) :
    ;; Sinon, l'exécution reprend après le block.
    ((return-from :block-name $$ :value _)
     (let ((association (assoc-etat block-name 'squash-block-catch etat)))
-      (unless association (error "Squash-Lisp : Can't return from block ~w, it is inexistant or not lexically apparent." block-name))
-      (squash-lisp `(progn (setq ,(cddr association) value)
-                           (unwind ,(cadr association))))))
+      (unless association (error "Squash-Lisp-1 : Can't return from block ~w, it is inexistant or not lexically apparent." block-name))
+      (squash-lisp-1 `(progn (setq ,(cddr association) value)
+                           (unwind ,(cadr association)))
+                   nil etat)))
    
    
    ;; Le traitement de tagbody/go est similaire pour sortir d'un tag, puis on jmp directement sur le tag de destination (vu qu'il est au même niveau).
    ((tagbody :body _*)
-    (let ((spliced-body (simple-splice-up-tagbody body)))
-      (let ((res nil)
-            (the-body nil)
-            (unwind-catch-marker-sym (make-symbol "UNWIND-CATCH-MARKER-SYM"))
-            (new-etat etat)
-            (unique-label-sym nil))
-        (dolist (zone spliced-body)
-          (setq unique-label-sym (make-symbol (format nil "~a" (car zone))))
-          (setq new-etat (push-local new-etat (car zone) 'squash-tagbody-catch (cons unwind-catch-marker-sym unique-label-sym)))
-          (setf (car zone) unique-label-sym))
-        (squash-lisp
-         `(let ((,tagbody-id-sym (cons nil nil)))
-            (unwind-catch ,tagbody-id-sym
-                          (progn
-                            ,@(progn (dolist (zone spliced-body)
-                                       (push `(jump-label (car zone)) res) 
-                                       (push `(progn (cdr zone)) res))
-                                     ;; (cdr (reverse …)) pour zapper le tout premier (jump-label …)
-                                     (cdr (reverse res)))))
-            nil)
-         new-etat))))
+    (let ((spliced-body (simple-splice-up-tagbody body))
+          (res nil)
+          (unwind-catch-marker-sym (make-symbol "UNWIND-CATCH-MARKER-SYM"))
+          (new-etat etat)
+          (unique-label-sym nil)
+          (tagbody-id-sym (make-symbol "TAGBODY-ID")))
+      (dolist (zone spliced-body)
+        (setq unique-label-sym (make-symbol (format nil "~a" (car zone))))
+        (setq new-etat (push-local new-etat (car zone) 'squash-tagbody-catch (cons unwind-catch-marker-sym unique-label-sym)))
+        (setf (car zone) unique-label-sym))
+      (squash-lisp-1
+       `(let ((,tagbody-id-sym (cons nil nil)))
+          (unwind-catch ,tagbody-id-sym
+                        (progn
+                          ,@(progn (dolist (zone spliced-body)
+                                     (push `(jump-label ,(car zone)) res) 
+                                     (push `(progn ,@(cdr zone)) res))
+                                   ;; (cdr (reverse …)) pour zapper le tout premier (jump-label …)
+                                   (cdr (reverse res)))))
+          nil)
+       nil
+       new-etat)))
    
    ((go :target $$)
     (let ((association (assoc-etat target 'squash-tagbody-catch etat)))
-      (unless association (error "Squash-Lisp : Can't go to label ~w, it is inexistant or not lexically apparent." target))
-      (squash-lisp `(progn (half-unwind ,(cadr association)
-                                        (jump ,(cddr association)))))))
+      (unless association (error "Squash-Lisp-1 : Can't go to label ~w, it is inexistant or not lexically apparent." target))
+      (squash-lisp-1 `(progn (half-unwind ,(cadr association)
+                                        (jump ,(cddr association))))
+                   nil etat)))
    
    ;; Le traitement de catch/throw est similaire, sauf que le pointeur est simplement un pointeur vers l'objet utilisé pour le catch / throw.
    ((catch :tag _ :body _*)
-    (squash-lisp
+    (squash-lisp-1
      ;; TODO : ajouter une variable globale singleton-catch-retval
-     `(unwind-catch ,tag (progn ,@body) singleton-catch-retval)))
+     `(unwind-catch ,tag (progn ,@body) singleton-catch-retval)
+     nil etat))
 
    ((throw :tag _ :result _)
-    (squash-lisp
+    (squash-lisp-1
      `(progn (setq singleton-catch-retval value)
-             (unwind ,tag (progn ,@body)))))
+             (unwind ,tag (progn ,@result)))
+     nil etat))
    
    ;; Simplification du unwind-protect
    ((unwind-protect :body _ :a-cleanup _ :other-cleanups _+)
-    `(unwind-protect ,(squash-lisp body)
-       (progn ,(squash-lisp a-cleanup) ,@(squash-lisp other-cleanups))))
+    `(unwind-protect ,(squash-lisp-1 body nil etat)
+       ,(squash-lisp-1 `(progn ,a-cleanup ,@other-cleanups) nil etat)))
    
    ((unwind-protect :body _ :a-cleanup _)
-    `(unwind-protect ,(squash-lisp body)
-       ,(squash-lisp a-cleanup)))
+    `(unwind-protect ,(squash-lisp-1 body nil etat)
+       ,(squash-lisp-1 a-cleanup nil etat)))
     
    ((unwind-catch :object _ :body _ :catch-code _?)
     (if catch-code
-        `(unwind-catch ,(squash-lisp object)
-                       ,(squash-lisp body)
-                       ,(squash-lisp (car catch-code)))
-        `(unwind-catch ,(squash-lisp object)
-                       ,(squash-lisp body))))
+        `(unwind-catch ,(squash-lisp-1 object nil etat)
+                       ,(squash-lisp-1 body nil etat)
+                       ,(squash-lisp-1 (car catch-code) nil etat))
+        `(unwind-catch ,(squash-lisp-1 object nil etat)
+                       ,(squash-lisp-1 body nil etat))))
    
    ((unwind :object _)
-    `(unwind ,(squash-lisp object)))
+    `(unwind ,(squash-lisp-1 object nil etat)))
    
    ((half-unwind :object _ :post-unwind-code _)
-    `(half-unwind ,(squash-lisp object) ,(squash-lisp post-unwind-code)))
+    `(half-unwind ,(squash-lisp-1 object nil etat) ,(squash-lisp-1 post-unwind-code nil etat)))
    
    ((jump-label :name _)
     expr)
    
    ((jump :dest _)
     expr)
+
+   ;; Transformation des (let[*] (var1 var2 var3) …) en (let[*] ((var1 nil) (var2 nil) (var3 nil)) …)
+   ((:type (? or (eq x 'let) (eq x 'let*)) :bindings (? and consp (find-if #'symbolp x)) :body . _)
+    (squash-lisp-1 `(,type ,(mapcar (lambda (b) (if (consp b) b `(b nil))) bindings) ,@body)))
    
-   ((let :bindings ((:name $$ :value _)*) :body _)
-	`(let ,(mapcar (lambda (n v) `(,n ,(squash-lisp v))) name value)
-	   ,(squash-lisp body)))
+   ((let ((:name $$ :value _)*) :body _*)
+    `(let ,(mapcar (lambda (n v) `(,n ,(squash-lisp-1 v nil etat))) name value)
+       ,(squash-lisp-1 `(progn ,@body) nil etat)))
    
-   ((let :bindings _ :body _*)
-	(squash-lisp `(let ,bindings (progn ,@body))))
+   ((let* ((:name $$ :value _)*) :body _*)
+    `(let* ,(mapcar (lambda (n v) `(,n ,(squash-lisp-1 v nil etat))) name value)
+       ,(squash-lisp-1 `(progn ,@body) nil etat)))
+   
+   ((flet ((:name $$ :params @ :fbody _*)*) :body _ _+)
+    `(simple-flet ,@(mapcar (lambda (name params fbody)
+                              (cons name (squash-lisp-1 `(lambda ,params (progn ,@fbody)) nil etat)))
+                            name params fbody)
+                  ,(squash-lisp-1 `(progn ,@body) nil etat)))
+   
+   ((labels ((:name $$ :params @ :fbody _*)*) :body _ _+)
+    `(simple-labels ,@(mapcar (lambda (name params fbody)
+                                (cons name (squash-lisp-1 `(lambda ,params (progn ,@fbody)) nil etat)))
+                              name params fbody)
+                    ,(squash-lisp-1 `(progn ,@body) nil etat)))
+   
+   ;; TODO : defun
    
    ;; TODO : simplifier la lambda-list.
+   ((lambda :params _ :body _)
+    `(lambda params ,(squash-lisp-1 body nil etat)))
    
    ((lambda :params _ :body _*)
-	(squash-lisp `(lambda ,params (progn ,@body))))
+    (squash-lisp-1 `(lambda ,params (progn ,@body)) nil etat))
+
+   ((:fun $$ :params _*)
+    `(funcall (function ,fun) ,@(mapcar (lambda (x) (squash-lisp-1 x nil etat)) params)))
    
    ;; Les constantes sont renvoyées telles qu'elles
    ((? or numberp stringp)
     expr)
    
+   ((? symbolp)
+    `(var ,expr))
+   
    ;; TODO : nil et t devraient être des defconst
    (nil
-    nil)))
+    nil)
+   (_
+    (error "Not implemented yet : ~a" expr))))
 
-(defun squash-lisp-3 (expr &optional env)
-  "Détecte les variables capturées."
+
+
+
+
+
+
+
+
+
+                     ;; => Si la variable n'existe pas (globale donc)
+                         ;; => la pusher dans l'env-var le plus haut
+(set-var var val)
+=> transformer val dans env-var env-fun
+résultat := (maybe-set-indirection var val)
+=> si la variable n'est pas capturée,
+   - push résultat sur la l'entrée de la variable dans env-var.
+=> si la variable est capturée,
+   - ajouter la variable aux captures de chaque niveau entre sa définition et le niveau courant (?)
+   - transformer tous les (maybe-*-indirection var) en (*-indirection var) dans l'entrée de la variable dans env-var
+renvoyer expr
+
+(funcall fun args*)
+=> transformer les args* dans env-var env-fun
+=> renvoyer (closure-call-fun (cdr (assoc fun env-fun)) args*)
+
+
+
+
+;; env-var = ((((capture*)) (nom-variable symbole-unique état (référence-lecture*) (référence-écriture*))*)*)
+;; état = [nil == variable normale] || ['captured == variable capturée] || ['special == variable spéciale]
+;; env-fun = ((nom-fonction . symbole-unique)*)
+
+(defun squash-lisp-3 (expr &optional env-var env-fun special-vars)
+  "Détecte les variables capturées, supprime les let, let*, flet, labels, lambda en les transformant en simple-let et simple-lambda."
+  ;; TODO : écraser et sortir vers le haut les let et lambda dans la même passe.
   (cond-match
    expr
    
-   ((let :bindings ((:name $$ :value _)*) :body _)
-    (let ((new-env (cons (mapcar-append (car env) (lambda (x) `(,x nil)) name)
-                         (cdr env))))
-      `(let ,(mapcar (lambda (x) (squash-lisp-3 x new-env)) bindings)
-         ,(squash-lisp-3 body new-env))))
+   ;; let et let*
+   ((:type (? or (eq x 'let) (eq x 'let*)) ((:names $$ :values _)*) :body _)
+    ;; => new-env-var := env-var
+    (let ((new-env-var env-var)
+          (simple-let-vars nil)
+          (simple-let-backups nil)
+          (simple-let-pre-body nil)
+          (simple-let-body nil)
+          (simple-let-restore nil)
+          (set-expression)
+          (unique-sym nil)
+          (let* (eq type 'let*)))
+      ;; => Pour chaque binding
+      (dolist* ((n name) v value)
+               ;; => On crée un symbole unique pour représenter cette liaison
+               (setq unique-sym (make-symbol (string n)))
+               ;; => ajouter unique-sym dans le simple-let qu'on crée
+               (push unique-sym simple-let-vars)
+               
+               (if (member n special-vars)
+                   ;; => Si c'est une variable spéciale,
+                   (progn
+                     ;; => On garde le nom d'origine comme nom de variable, et on utilise le nom unique comme symbole de sauvegarde.
+                     ;; => au tout début du body, avant les autres set, sauvegarder la variable
+                     (push `(setq ,unique-sym ,n) simple-let-backups)
+                     ;; => au début du body, set la variable avec (transform valeur (new- si let*)env-var env-fun)
+                     (push `(setq ,n ,(squash-lisp-3 v (if let* new-env-var env-var) env-fun)) simple-let-pre-body)
+                     ;; => à la fin du body (dans un unwind-protect), restaurer la variable
+                     (push `(setq ,n ,unique-sym) simple-let-restore))
+                   ;; => Sinon (variable "normale" ou futurement capturée),
+                   (progn
+                     ;; TODO : ajouter un maybe-create-indirection
+                     ;; => au début du body, set la variable unique-sym avec (transform valeur (new- si let*)env-var env-fun)
+                     (setq set-expression `(setq ,unique-sym ,(squash-lisp-3 v (if let* new-env-var env-var) env-fun)))
+                     (push set-expression simple-let-pre-body)
+                     ;; => push (nom unique-sym nil <set-expression>) sur new-env-var
+                     (push `(,n ,unique-sym nil nil (,set-expression)) new-env-var))))
+      ;; => transforme le body dans new-env-var env-fun
+      (setq simple-let-body (squash-lisp-3 body new-env-var env-fun))
+      ;; => construit et renvoie le simple-let
+      (if simple-let-restore
+          `(simple-let ,simple-let-vars
+                       (unwind-protect
+                            (progn ,@simple-let-backups ;; Ne peut / doit pas déclenger d'unwind
+                                   ,@simple-let-pre-body ;; À partir d'ici on peut
+                                   ,@simple-let-body)
+                         ,@simple-let-restore))
+          `(simple-let ,simple-let-vars
+                       (progn ,@simple-let-pre-body
+                              ,@simple-let-body)))))
    
-   (((? (eq x 'let*)) :bindings ((:name $$ :value _)*) :body _)
-    (let ((new-local-env (car env)))
-      `(let ,(mapcar (lambda (var val) (prog1 (squash-lisp-3 x (cons new-local-env (cdr env)))
-                                         (push `(x nil) new-local-env)))
-                     name value)
-         ,(squash-lisp-3 body new-env))))
+   ;; flet et labels
+   ((:type (? or (eq x 'flet) (eq x 'labels)) ((:name $ :value _)*) :body _)
+    ;; => new-env-var := env-var
+    ;; => new-env-fun := env-fun
+    (let ((new-env-var env-var)
+          (new-env-fun env-fun)
+          (simple-let-vars nil)
+          (simple-let-pre-body nil)
+          (simple-let-body nil)
+          (set-expression)
+          (unique-sym nil)
+          (labels (eq type 'labels)))
+      ;; => Pour chaque binding
+      (dolist* ((n name) (v value))
+               ;; => On crée un symbole unique pour représenter cette liaison dans l'environnement des variables
+               (setq unique-sym (make-symbol (string n)))
+               ;; => ajouter unique-sym dans le simple-let qu'on crée
+               (push unique-sym simple-let-vars)
+               ;; TODO : ajouter un maybe-create-indirection
+               ;; => On push le unique-sym dans les variables : (unique-sym unique-sym nil <set-expression qui sera déterminé plus tard>)
+               (setq set-expression (list 'setq unique-sym 'undefined))
+               (push `(,unique-sym ,unique-sym nil nil (,set-expression)) new-env-var)
+               ;; => push (nom . unique-sym) sur new-env-fun
+               (push `(,n . ,unique-sym) new-env-fun)
+               ;; => au début du body, set la variable unique-sym avec (transform <lambda> (new- si labels)env-var (new- si labels)env-fun)
+               ;; + set sur le champ "valeur" du set-expression
+               ;; Note : on marche sur de l'ether…
+               (setf (third set-expression) `(setq ,unique-sym ,(squash-lisp-3 v (if let* new-env-var env-var) (if let* new-env-fun env-fun))))
+               (push set-expression simple-let-pre-body))
+      ;; => On transforme le body dans new-env-var new-env-fun
+      (setq simple-let-body (squash-lisp-3 body new-env-var new-env-fun))
+      ;; => construit et renvoie le simple-let
+      `(simple-let ,simple-let-vars
+                   (progn ,@simple-let-pre-body
+                          ,@simple-let-body))))
    
-   (let ((new-env (cons (mapcar-append (car env) (lambda (x) (list x nil)) name) (cdr env))))
-     `(let ,(mapcar (lambda (x) (squash-lisp-3 x new-env)) bindings)
-        ,(squash-lisp-3 body new-env))))
-  
-  ((lambda :params ($$*) :body _)
-   `(lambda ,params ;; TODO
-      ,(squash-lisp-3 body
-                      (cons nil
-                            (cons (mapcar-append (car env)
-                                                 (lambda (x) (list x nil))
-                                                 (delete '&rest params))
-                                  (cdr env))))))
-  ((:fun $$ :args _*)
-   (cons fun (mapcar (lambda (x) (squash-lisp-3 x env)) args)))
-  ($$ ;; Utilisation d'une variable, à mettre tout à la fin !
-   (let ((res (list 'maybe-indirection expr))
-         (variable (assoc expr (car env)))
-         (search-env env)
-         (references nil))
-     (if variable ;; Variable trouvée dans l'environnement local
-         (if (second variable)
-             `(indirection ,expr)
-             (progn (push res (cddr variable))
-                    res))
-         (progn
-           (tagbody
-            search-loop
-              (setq search-env (cdr search-env))
-              (when (endp search-env)
-                ;; TODO globals
-                (error "Globals not implemented yet !~&expr = ~a~&env = ~a" expr env)
-                (go fin))
-              (setq variable (assoc expr (car search-env))) ;; Rechercher dans cet environnement
-              (unless variable
-                (go search-loop)) ;; Rechercher dans l'environnement suivant si on ne trouve pas.
-              (when (second variable)
-                (go fin)) ;; La variable est déjà marquée comme capturée
-              (setq references (cddr variable))
-              (setf (cdr variable) '(t)) ;; Marquer la variable comme étant capturée
-            convert-to-captured-loop
-              (when (endp references) (go fin))
-              (setf (caar references) 'indirection) ;; 'maybe-indirection -> 'indirection .
-              (setq references (cdr references))
-              (go convert-to-captured-loop)
-            fin
-              (setq res (list 'indirection expr)))
-           res))))))
-         
+   ;; lambda
+   ;; Beaucoup de code dupliqué entre les let[*] / lambda / flet / labels
+   ;; TODO : gérer le &rest
+   ((lambda :params ($$*) :body _)
+    ;; => new-env-var := nil
+    ;; => new-env-fun := env-fun
+    (let ((new-env-var env-var)
+          (simple-lambda-vars nil)
+          (simple-lambda-backups nil)
+          (simple-lambda-get-params nil)
+          (simple-lambda-get-captured (list nil))
+          (simple-lambda-body nil)
+          (simple-lambda-restore nil)
+          (set-expression)
+          (unique-sym nil)
+          (p-chan 0))
+      ;; Shift l'environnement courant en le remplaçant par un tout nouveau tout bô.
+      (setq env-var (cons (list simple-lambda-backups) env-var))
+      ;; => Pour chaque paramètre
+      (dolist (p params)
+        ;; paramètre 0 = objet closure, donc on commence à partir du 1
+        (incf p-chan)
+        ;; => On crée un symbole unique pour représenter cette liaison
+        (setq unique-sym (make-symbol (string p)))
+        ;; => ajouter unique-sym dans le simple-lambda qu'on crée
+        (push unique-sym simple-lambda-vars)
+        
+        (if (member p special-vars)
+            ;; => Si c'est une variable spéciale,
+            (progn
+              ;; => On garde le nom d'origine comme nom de variable, et on utilise le nom unique comme symbole de sauvegarde.
+              ;; => au tout début du body, avant les autres set, sauvegarder la variable
+              (push `(setq ,unique-sym ,p) simple-lambda-backups)
+              ;; => au début du body, set la variable avec (get-param <numéro>)
+              (push `(setq ,p (get-param ,p-chan)) simple-lambda-get-params)
+              ;; => à la fin du body (dans un unwind-protect), restaurer la variable
+              (push `(setq ,p ,unique-sym) simple-lambda-restore))
+            ;; => Sinon (variable "normale" ou futurement capturée),
+            (progn
+              ;; TODO : ajouter un maybe-create-indirection
+              ;; => au début du body, set la variable unique-sym avec (get-param <numéro>)
+              (setq set-expression `(setq ,unique-sym (get-param p-chan)))
+              (push set-expression simple-lambda-get-params)
+              ;; => push (nom unique-sym nil <set-expression>) sur new-env-var
+              (push `(,p ,unique-sym nil nil (,set-expression)) new-env-var))))
+      ;; => transforme le body dans new-env-var env-fun
+      (setq simple-lambda-body (squash-lisp-3 body new-env-var env-fun))
+      ;; => construit et renvoie le simple-lambda
+      ;; TODO : closure ? make-closure ? ???
+      `(simple-lambda ,simple-lambda-vars
+                      ,simple-lambda-backups
+                      ,simple-lambda-get-params
+                      ,simple-lambda-get-captured ;; Attention : encapsulé dans le car d'un cons.
+                      ,simple-lambda-body
+                      ,simple-lambda-restore))) ;; TODO : à la compilation, restore doit être unwind-protect du reste.
+
+   ;; Appel de fonction
+   ((funcall :fun $$ :args _*)
+    (cons 'funcall (mapcar (lambda (x) (squash-lisp-3 x env-var env-fun)) (cons fun args))))
+   
+   ;; Référence à une fonction
+   ((function :fun $$)
+    (squash-lisp-3 (cdr (assoc fun env-fun)) env-var env-fun))
+   
+   ;; Référence à une variable
+   ;; (get-var var) ;; TODO : transformation dans squash-lisp-1
+   ;; TODO : adapter avec des if pour get-var / setq
+   ((:type (? or (eq x 'get-var) (eq x 'setq)) :var $$)
+    (let ((résultat nil)
+          (search-env-var env-var)
+          (envs nil)
+          (is-global nil)
+          (variable nil)
+          (setq (eq type 'setq)))
+      ;; => résultat := (get-var var) ou (setq var (transform val …))
+      (if setq
+          (list 'setq var (squash-lisp-3 val env-var env-fun))
+          (list 'get-var var))
+      ;; => chercher la définition de la variable.
+      (tagbody
+       search-loop
+         (push (car search-env-var) envs)
+       start
+         (when (endp (cdr search-env-var))
+           (setq is-global t))
+         (setq variable (assoc expr (cdar search-env-var)))
+         (unless variable
+           (when (endp (cdr search-env-var))
+             (go end))
+           (setq search-env-var (cdr search-env-var))
+           (go search-loop))
+       end)
+      ;; => Si la variable n'existe pas (globale donc)
+      (when (not variable)
+        (when (not is-global) (error "Assertion failed !!! La variable devrait être marquée comme globale.")) ;; DEBUG
+        ;; => la pusher dans l'env-var le plus haut (car (last …)) == search-env-var
+        (if setq 
+            (push `(,var ,var nil nil résultat) search-env-var)
+            (push `(,var ,var nil résultat nil) search-env-var)))
+      ;; => Si elle ne se trouve ni dans l'env-var local (car) ni dans l'env-var global (last), alors c'est une capture
+      ;; => Autre possibilité : la variable est spéciale, on la traite alors comme si elle était non capturée.
+      (if (not (or (length=1 envs) is-global (eq 'special (third variable))))
+          (progn
+            (if setq
+                (setq (car résultat) 'setq-indirection)
+                (setq (car résultat) 'get-var-indirection))
+            ;; => si c'est une nouvell capture
+            (unless (third variable) ;; == 'captured
+              ;; => Pour chaque environnement intermédiaire + l'env-var local,
+              (dolist (e envs)
+                ;; => On marque la variable comme capturée
+                (push var (caar e))
+                ;; => On transforme tous les (get-var var) en (get-var-indirection var)
+                (dolist (reference-get (fourth variable))
+                  (setf (car reference-get 'get-var-indirection)))
+                (setf (fourth variable) nil)
+                ;; => On transforme tous les (setq var val) en (setq-indirection var val)
+                (dolist (reference-set (fifth variable))
+                  (setf (car reference-set 'setq-indirection)))
+                (setf (fifth variable) nil))))
+          ;; => Sinon, ce n'est pas (encore) une capture
+          ;; => push résultat sur l'entrée de la variable dans env-var.
+          (if setq
+              (push résultat (fifth variable))
+              (push résultat (fourth variable))))
+      ;; renvoyer résultat
+      résultat)))) ;; end squash-lisp-3
+
 #|
 
 ;; Formes pouvant créer des variables capturables :

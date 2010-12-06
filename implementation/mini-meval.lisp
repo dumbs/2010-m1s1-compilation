@@ -331,6 +331,9 @@ Mini-meval sera appellé sur des morceaux spécifiques du fichier source. Il fau
                (setf (cdr (assoc `(,name . function) new-etat-local :test #'equal))
                      (mini-meval `(lambda ,lambda-list ,@fbody) new-etat)))
       (mini-meval `(progn ,@body) new-etat)))
+   ;; Transformation des (let[*] (var1 var2 var3) …) en (let[*] ((var1 nil) (var2 nil) (var3 nil)) …)
+   ((:type (? or (eq x 'let) (eq x 'let*)) :bindings (? and consp (find-if #'symbolp x)) :body . _)
+    (mini-meval `(,type ,(mapcar (lambda (b) (if (consp b) b `(b nil))) bindings) ,@body)))
    ((let ((:name $ :value _)*) :body _*)
     (let ((new-etat etat)
           (res nil))
@@ -555,6 +558,14 @@ Mini-meval sera appellé sur des morceaux spécifiques du fichier source. Il fau
 (deftest (mini-meval let*)
     (mini-meval '(let ((x 3) (y 4) (z 5)) (let* ((z (+ x y)) (w z)) (list x y z w))) etat)
   '(3 4 7 7))
+
+(deftest (mini-meval let-nil)
+    (mini-meval '(let (a (x 3) y) (list a x y)) etat)
+  '(nil 3 nil))
+
+(deftest (mini-meval let-nil)
+    (mini-meval '(let* ((x 4) y (z 5)) (list a x y)) etat)
+  '(4 nil 5))
 
 (deftest (mini-meval progn)
     (mini-meval '(progn 1 2 3 4) etat)
