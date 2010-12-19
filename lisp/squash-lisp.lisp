@@ -1,4 +1,4 @@
-(require 'mini-meval "implementation/mini-meval")
+(require 'mini-meval "mini-meval")
 (require 'match "match")
 
 ;; TODO : emballer le résultat de squash-lisp dans un (macrolet ...) pour les "special-operator" qu'on rajoute.
@@ -422,22 +422,22 @@ On a donc une pile de cette forme (les vieilles données sont en haut) :
 
 
 
+;; TODO : D'où sort ce commentaire !?! Probablement faux.
+;;                      ;; => Si la variable n'existe pas (globale donc)
+;;                          ;; => la pusher dans l'env-var le plus haut
+;; (set-var var val)
+;; => transformer val dans env-var env-fun
+;; résultat := (maybe-set-indirection var val)
+;; => si la variable n'est pas capturée,
+;;    - push résultat sur la l'entrée de la variable dans env-var.
+;; => si la variable est capturée,
+;;    - ajouter la variable aux captures de chaque niveau entre sa définition et le niveau courant (?)
+;;    - transformer tous les (maybe-*-indirection var) en (*-indirection var) dans l'entrée de la variable dans env-var
+;; renvoyer expr
 
-                     ;; => Si la variable n'existe pas (globale donc)
-                         ;; => la pusher dans l'env-var le plus haut
-(set-var var val)
-=> transformer val dans env-var env-fun
-résultat := (maybe-set-indirection var val)
-=> si la variable n'est pas capturée,
-   - push résultat sur la l'entrée de la variable dans env-var.
-=> si la variable est capturée,
-   - ajouter la variable aux captures de chaque niveau entre sa définition et le niveau courant (?)
-   - transformer tous les (maybe-*-indirection var) en (*-indirection var) dans l'entrée de la variable dans env-var
-renvoyer expr
-
-(funcall fun args*)
-=> transformer les args* dans env-var env-fun
-=> renvoyer (closure-call-fun (cdr (assoc fun env-fun)) args*)
+;; (funcall fun args*)
+;; => transformer les args* dans env-var env-fun
+;; => renvoyer (closure-call-fun (cdr (assoc fun env-fun)) args*)
 
 
 
@@ -465,7 +465,7 @@ renvoyer expr
           (unique-sym nil)
           (let* (eq type 'let*)))
       ;; => Pour chaque binding
-      (dolist* ((n name) v value)
+      (dolist* ((n name) (v value))
                ;; => On crée un symbole unique pour représenter cette liaison
                (setq unique-sym (make-symbol (string n)))
                ;; => ajouter unique-sym dans le simple-let qu'on crée
@@ -653,11 +653,11 @@ renvoyer expr
                 (push var (caar e))
                 ;; => On transforme tous les (get-var var) en (get-var-indirection var)
                 (dolist (reference-get (fourth variable))
-                  (setf (car reference-get 'get-var-indirection)))
+                  (setf (car reference-get) 'get-var-indirection))
                 (setf (fourth variable) nil)
                 ;; => On transforme tous les (setq var val) en (setq-indirection var val)
                 (dolist (reference-set (fifth variable))
-                  (setf (car reference-set 'setq-indirection)))
+                  (setf (car reference-set) 'setq-indirection))
                 (setf (fifth variable) nil))))
           ;; => Sinon, ce n'est pas (encore) une capture
           ;; => push résultat sur l'entrée de la variable dans env-var.

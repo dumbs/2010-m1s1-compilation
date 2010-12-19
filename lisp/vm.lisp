@@ -276,4 +276,4 @@
          (get-memory vm (get-register vm 'SP)))
   t-r1-value)
 
-(provide 'instructions)
+(provide 'vm)

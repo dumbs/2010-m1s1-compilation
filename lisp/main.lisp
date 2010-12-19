@@ -5,10 +5,9 @@
 
 (load "util")
 (load "test-unitaire")
-(load "instructions")
+(load "vm")
 (load "match")
-(load "lisp2li")
-(load "meval")
-(load "implementation/mini-meval")
+(load "mini-meval")
+(load "squash-lisp")
 
 (provide 'main)
