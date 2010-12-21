@@ -553,55 +553,15 @@ On a donc une pile de cette forme (les vieilles données sont en haut) :
    ;; Beaucoup de code dupliqué entre les let[*] / lambda / flet / labels
    ;; TODO : gérer le &rest
    ((lambda :params ($$*) :body _)
-    (let ((simple-lambda-vars nil)
-          (simple-lambda-backups nil)
-          (simple-lambda-get-params nil)
-          (simple-lambda-get-captured (list nil))
-          (simple-lambda-body nil)
-          (simple-lambda-restore nil)
-          (set-expression)
-          (unique-sym nil)
-          (p-chan 0))
-      ;; Shift l'environnement courant en le remplaçant par un tout nouveau tout bô.
-      (setq env-var (cons nil env-var))
-      (push simple-lambda-get-captured captures) ;; TODO : ?
-      ;; => Pour chaque paramètre
-      (dolist (p params)
-        ;; paramètre 0 = objet closure, donc on commence à partir du 1
-        (incf p-chan)
-        ;; => On crée un symbole unique pour représenter cette liaison
-        (setq unique-sym (make-symbol (string p)))
-        ;; => ajouter unique-sym dans le simple-lambda qu'on crée
-        (push unique-sym simple-lambda-vars)
-        
-        (if (member p special-vars)
-            ;; => Si c'est une variable spéciale,
-            (progn
-              ;; => On garde le nom d'origine comme nom de variable, et on utilise le nom unique comme symbole de sauvegarde.
-              ;; => au tout début du body, avant les autres set, sauvegarder la variable
-              (push `(setq ,unique-sym ,p) simple-lambda-backups)
-              ;; => au début du body, set la variable avec (get-param <numéro>)
-              (push `(setq ,p (get-param ,p-chan)) simple-lambda-get-params)
-              ;; => à la fin du body (dans un unwind-protect), restaurer la variable
-              (push `(setq ,p ,unique-sym) simple-lambda-restore))
-            ;; => Sinon (variable "normale" ou futurement capturée),
-            (progn
-              ;; => au début du body, set la variable unique-sym avec (get-param <numéro>)
-              (setq set-expression `(setq ,unique-sym (get-param p-chan)))
-              (push set-expression simple-lambda-get-params)
-              ;; => push (nom unique-sym nil <pas-de-get> <set-expression>) sur env-var
-              (push `(,p ,unique-sym nil nil (,set-expression)) (car env-var)))))
-      ;; => transforme le body dans env-var env-fun
-      (setq simple-lambda-body (squash-lisp-3 body captures env-var env-fun))
-      ;; => construit et renvoie le simple-lambda
-      ;; TODO : closure ? make-closure ? ???
-      `(simple-lambda ,simple-lambda-vars
-                      ,simple-lambda-backups
-                      ,simple-lambda-get-params
-                      ,simple-lambda-get-captured ;; Attention : encapsulé dans le car d'un cons.
-                      ,simple-lambda-body
-                      ,simple-lambda-restore))) ;; TODO : à la compilation, restore doit être unwind-protect du reste.
-
+    `(simple-lambda
+      ,(length params)
+      ,(squash-lisp-3
+        `(let ,(loop
+                  for i upfrom 1
+                  for var in params
+                  collect `(,var (get-param ,i)))
+           ,body))))
+   
    ;; Appel de fonction
    ((funcall :fun _ :args _*)
     (cons 'funcall (mapcar (lambda (x) (squash-lisp-3 x captures env-var env-fun)) (cons fun args))))
@@ -617,6 +577,10 @@ On a donc une pile de cette forme (les vieilles données sont en haut) :
    ;; Progn
    ((progn :exprs _*)
     (cons 'progn (mapcar (lambda (x) (squash-lisp-3 x captures env-var env-fun)) exprs)))
+   
+   ;; Récupération d'un paramètre
+   ((get-param (? numberp))
+    expr)
    
    ;; Référence à une variable
    ;; (get-var var)
