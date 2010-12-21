@@ -505,6 +505,9 @@ Mini-meval sera appellé sur des morceaux spécifiques du fichier source. Il fau
 (defmacro make-etat (&rest functions)
   `(push-functions (list nil nil nil) ',functions))
 
+(defun etat-exemple ()
+  (make-etat list + - cons car cdr < > <= >= =))
+
 (require 'test-unitaire "test-unitaire")
 (erase-tests mini-meval)
 
