@@ -553,18 +553,71 @@ On a donc une pile de cette forme (les vieilles données sont en haut) :
    ;; Beaucoup de code dupliqué entre les let[*] / lambda / flet / labels
    ;; TODO : gérer le &rest
    ((lambda :params ($$*) :body _)
-    `(simple-lambda
-      ,(length params)
-      ,(squash-lisp-3
-        `(let ,(loop
-                  for i upfrom 1
-                  for var in params
-                  collect `(,var (get-param ,i)))
-           ,body))))
+    (let ((simple-lambda-captures (list nil)))
+      ;; Shift l'environnement courant en le remplaçant par un tout nouveau tout bô.
+      (setq env-var (cons nil env-var))
+      (push simple-lambda-captures captures)
+      ;; Création du simple-lambda
+      ;; TODO : insérer du code pour avoir les captures.
+      `(simple-lambda
+        ,(length params)
+        ,(squash-lisp-3
+          `(let ,(loop
+                    for i upfrom 1
+                    for var in params
+                    collect `(,var (get-param ,i)))
+             ,body)))))
+   ;; (let ((simple-lambda-vars nil)
+   ;;       (simple-lambda-backups nil)
+   ;;       (simple-lambda-get-params nil)
+   ;;       (simple-lambda-get-captured (list nil))
+   ;;       (simple-lambda-body nil)
+   ;;       (simple-lambda-restore nil)
+   ;;       (set-expression)
+   ;;       (unique-sym nil)
+   ;;       (p-chan 0))
+   ;;   ;; => Pour chaque paramètre
+   ;;   (dolist (p params)
+   ;;     ;; paramètre 0 = objet closure, donc on commence à partir du 1
+   ;;     (incf p-chan)
+   ;;     ;; => On crée un symbole unique pour représenter cette liaison
+   ;;     (setq unique-sym (make-symbol (string p)))
+   ;;     ;; => ajouter unique-sym dans le simple-lambda qu'on crée
+   ;;     (push unique-sym simple-lambda-vars)
+   
+   ;;     (if (member p special-vars)
+   ;;         ;; => Si c'est une variable spéciale,
+   ;;         (progn
+   ;;           ;; => On garde le nom d'origine comme nom de variable, et on utilise le nom unique comme symbole de sauvegarde.
+   ;;           ;; => au tout début du body, avant les autres set, sauvegarder la variable
+   ;;           (push `(setq ,unique-sym ,p) simple-lambda-backups)
+   ;;           ;; => au début du body, set la variable avec (get-param <numéro>)
+   ;;           (push `(setq ,p (get-param ,p-chan)) simple-lambda-get-params)
+   ;;           ;; => à la fin du body (dans un unwind-protect), restaurer la variable
+   ;;           (push `(setq ,p ,unique-sym) simple-lambda-restore))
+   ;;         ;; => Sinon (variable "normale" ou futurement capturée),
+   ;;         (progn
+   ;;           ;; => au début du body, set la variable unique-sym avec (get-param <numéro>)
+   ;;           (setq set-expression `(setq ,unique-sym (get-param p-chan)))
+   ;;           (push set-expression simple-lambda-get-params)
+   ;;           ;; => push (nom unique-sym nil <pas-de-get> <set-expression>) sur env-var
+   ;;           (push `(,p ,unique-sym nil nil (,set-expression)) (car env-var)))))
+   ;;   ;; => transforme le body dans env-var env-fun
+   ;;   (setq simple-lambda-body (squash-lisp-3 body captures env-var env-fun))
+   ;;   ;; => construit et renvoie le simple-lambda
+   ;;   ;; TODO : closure ? make-closure ? ???
+   ;;   `(simple-lambda ,simple-lambda-vars
+   ;;                   ,simple-lambda-backups
+   ;;                   ,simple-lambda-get-params
+   ;;                   ,simple-lambda-get-captured ;; Attention : encapsulé dans le car d'un cons.
+   ;;                   ,simple-lambda-body
+   ;;                   ,simple-lambda-restore))) ;; TODO : à la compilation, restore doit être unwind-protect du reste.
    
    ;; Appel de fonction
    ((funcall :fun _ :args _*)
     (cons 'funcall (mapcar (lambda (x) (squash-lisp-3 x captures env-var env-fun)) (cons fun args))))
+
+   ;; TODO : apply ?
    
    ;; Référence à une fonction
    ((function :fun $$)
@@ -651,6 +704,33 @@ On a donc une pile de cette forme (les vieilles données sont en haut) :
     expr)
    (_
     (error "squash-lisp-3: not implemented yet: ~a" expr)))) ;; end squash-lisp-3
+
+(defun squash-lisp-3-check (expr)
+  (cond-match
+   expr
+   ((simple-let :vars ($$*) :body _*)
+    (every #'squash-lisp-3-check body))
+   ((simple-lambda :nb-params (? numberp) :body _*)
+    ;; nb-params = sans compter le paramètre de closure.
+    (every #' squash-lisp-3-check body))
+   ((funcall :function _ :args _*)
+    (every #'squash-lisp-3-check (cons function args)))
+   ((progn :body _*)
+    (every #'squash-lisp-3-check body))
+   ((get-param (? numberp))
+    t)
+   ((setq :var $$ :val _)
+    (squash-lisp-3-check val))
+   ((get-var :var $$)
+    t)
+   ((setq-indirection :var $$ :val _)
+    (squash-lisp-3-check val))
+   ((get-var-indirection $$)
+    t)
+   ((quote :val _)
+    t)
+   (_
+    (error "squash-lisp-3-check: Assertion failed ! This should not be here : ~a" expr))))
 
 #|
 
