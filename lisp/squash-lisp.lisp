@@ -162,7 +162,7 @@ jmp @fud-loop
 
 @unwind-not-found-error
 ;; error : cant unwind to this object, the return point doesn't exist anymore.
-;; TODO : mettre un code d'erreur dans r2
+;; TODO : mettre un code d'erreur dans r2 (par exemple)
 halt
 
 @start-unwind
@@ -232,13 +232,15 @@ On a donc une pile de cette forme (les vieilles données sont en haut) :
    ((eval-when :situations ($*) :body _*)
     (when (and at-toplevel (member :compile-toplevel situations))
       (mini-meval `(progn ,@body) etat))
-    (when (member :load-toplevel situations)
-      (squash-lisp-1 body at-toplevel etat)))
+    (if (member :load-toplevel situations)
+        (squash-lisp-1 body at-toplevel etat)
+        (squash-lisp-1 nil at-toplevel etat))) ;; on renvoie nil
    
    ;; - Si on rencontre un defmacro (au toplevel ou ailleurs).
    ;;   - On demande à compiler-meval de l'exécuter.
    ((defmacro :name $ :lambda-list @ :body _*)
-    (mini-meval expr etat))
+    (mini-meval expr etat)
+    (squash-lisp-1 nil at-toplevel etat)) ;; on renvoie nil
    
    ;; - Si on rencontre un macrolet
    ;;   - On fait une copie de l'état de compiler-meval
@@ -257,10 +259,6 @@ On a donc une pile de cette forme (les vieilles données sont en haut) :
    ;;   - Lorsqu'on rencontre un symbole, on regarde s'il a une définition de type symbol-macrolet
    ((symbol-macrolet . _)
     (error "squash-lisp-1 : Symbol-macrolet n'est pas implémenté."))
-   
-   ;; TODO : Attention : c'est peut-être dangereux... Si on a utilisé un progn pour "protéger" un nil d'un tagbody
-   ((progn :single-body _)
-    (squash-lisp-1 single-body at-toplevel etat))
    
    ((progn :body _*)
     (cons 'progn (mapcar (lambda (form) (squash-lisp-1 form at-toplevel etat)) body)))
@@ -378,13 +376,13 @@ On a donc une pile de cette forme (les vieilles données sont en haut) :
     `(let* ,(mapcar (lambda (n v) `(,n ,(squash-lisp-1 v nil etat))) name value)
        ,(squash-lisp-1 `(progn ,@body) nil etat)))
    
-   ((flet ((:name $$ :params @ :fbody _*)*) :body _ _+)
+   ((flet ((:name $$ :params @ :fbody _*)*) :body _*)
     `(simple-flet ,@(mapcar (lambda (name params fbody)
                               (cons name (squash-lisp-1 `(lambda ,params (progn ,@fbody)) nil etat)))
                             name params fbody)
                   ,(squash-lisp-1 `(progn ,@body) nil etat)))
    
-   ((labels ((:name $$ :params @ :fbody _*)*) :body _ _+)
+   ((labels ((:name $$ :params @ :fbody _*)*) :body _*)
     `(simple-labels ,@(mapcar (lambda (name params fbody)
                                 (cons name (squash-lisp-1 `(lambda ,params (progn ,@fbody)) nil etat)))
                               name params fbody)
@@ -405,6 +403,8 @@ On a donc une pile de cette forme (les vieilles données sont en haut) :
    ((funcall :fun _ :params _*)
     `(funcall ,@(mapcar (lambda (x) (squash-lisp-1 x nil etat)) (cons fun params))))
    
+   ;; TODO : apply
+   
    ((:fun $$ :params _*)
     `(funcall (function ,fun) ,@(mapcar (lambda (x) (squash-lisp-1 x nil etat)) params)))
    
@@ -423,36 +423,46 @@ On a donc une pile de cette forme (les vieilles données sont en haut) :
    (_
     (error "squash-lisp-1: Not implemented yet : ~a" expr))))
 
-
-
-
-
-
-
-
-
-;; TODO : D'où sort ce commentaire !?! Probablement faux.
-;;                      ;; => Si la variable n'existe pas (globale donc)
-;;                          ;; => la pusher dans l'env-var le plus haut
-;; (set-var var val)
-;; => transformer val dans env-var env-fun
-;; résultat := (maybe-set-indirection var val)
-;; => si la variable n'est pas capturée,
-;;    - push résultat sur la l'entrée de la variable dans env-var.
-;; => si la variable est capturée,
-;;    - ajouter la variable aux captures de chaque niveau entre sa définition et le niveau courant (?)
-;;    - transformer tous les (maybe-*-indirection var) en (*-indirection var) dans l'entrée de la variable dans env-var
-;; renvoyer expr
-
-;; (funcall fun args*)
-;; => transformer les args* dans env-var env-fun
-;; => renvoyer (closure-call-fun (cdr (assoc fun env-fun)) args*)
-
-
-;; TODO : bug found : push -> env-var : devrait être (cdar env-var)
-;; TODO : bug found : pas backups ! (setq env-var (cons (list simple-lambda-backups) env-var))
-
-
+(defun squash-lisp-1-check (expr)
+  "Vérifie si expr est bien un résultat valable de squash-lisp-1.
+Permet aussi d'avoir une «grammaire» du simple-lisp niveau 1.
+Attention : il y a quelques invariants qui ne sont pas présents dans cette vérification."
+  (cond-match
+   expr
+   ((progn :body _*)
+    (every #'squash-lisp-1-check body))
+   ((unwind-protect :body _ :cleanup _)
+    (and (squash-lisp-1-check body)
+         (squash-lisp-1-check cleanup)))
+   ((unwind-catch :object _ :body _ :catch-code _?)
+    (and (squash-lisp-1-check object)
+         (squash-lisp-1-check body)
+         (if catch-code
+             (squash-lisp-1-check (car catch-code))
+             t)))
+   ((unwind :object _)
+    (squash-lisp-1-check object))
+   ((half-unwind :object _ :post-unwind-code _)
+    (and (squash-lisp-1-check object)
+         (squash-lisp-1-check post-unwind-code)))
+   ((jump-label :name _) ;; TODO : être plus précis que "_"
+    t) ;; TODO : t ? ou récursion ?
+   ((jump :dest _) ;; TODO : être plus précis que "_"
+    t) ;; TODO : t ? ou récursion ?
+   (((? (member x '(let let* flet labels))) ((:name $$ :value _)*) :body _)
+    (every #'squash-lisp-1-check (cons body value)))
+   ((lambda :params ($$*) :body _)
+    (squash-lisp-1-check body))
+   ((function :fun $$)
+    t)
+   ((funcall :fun _ :params _*)
+    (every #'squash-lisp-1-check (cons fun params)))
+   ((quote _)
+    t)
+   ((get-var $$)
+    t)
+   (_
+    (error "squash-lisp-1-check: Assertion failed ! This should not be here : ~a" expr))))
 ;; captures = ((capture*)*)
 ;; env-var = (((nom-variable symbole-unique état (référence-lecture*) (référence-écriture*))*)*)
 ;; état = [nil == variable normale] || ['captured == variable capturée] || ['special == variable spéciale]
@@ -460,7 +470,6 @@ On a donc une pile de cette forme (les vieilles données sont en haut) :
 
 (defun squash-lisp-3 (expr &optional (captures (list nil)) (env-var (list nil)) env-fun special-vars)
   "Détecte les variables capturées, supprime les let, let*, flet, labels, lambda en les transformant en simple-let et simple-lambda."
-  ;; TODO : écraser et sortir vers le haut les let et lambda dans la même passe.
   (cond-match
    expr
    
@@ -557,8 +566,11 @@ On a donc une pile de cette forme (les vieilles données sont en haut) :
       ;; Shift l'environnement courant en le remplaçant par un tout nouveau tout bô.
       (setq env-var (cons nil env-var))
       (push simple-lambda-captures captures)
+      ;; Quand on capture, on ne sait pas si la variable sera déclarée spéciale plus tard.
+      ;; Mais on a décidé (cf. les notes plus bas) de ne pas supporter la re-déclaration d'une variable comme spéciale.
       ;; Création du simple-lambda
       ;; TODO : insérer du code pour avoir les captures.
+      ;; TODO : closure ? make-closure ? ???
       `(simple-lambda
         ,(length params)
         ,(squash-lisp-3
@@ -567,51 +579,6 @@ On a donc une pile de cette forme (les vieilles données sont en haut) :
                     for var in params
                     collect `(,var (get-param ,i)))
              ,body)))))
-   ;; (let ((simple-lambda-vars nil)
-   ;;       (simple-lambda-backups nil)
-   ;;       (simple-lambda-get-params nil)
-   ;;       (simple-lambda-get-captured (list nil))
-   ;;       (simple-lambda-body nil)
-   ;;       (simple-lambda-restore nil)
-   ;;       (set-expression)
-   ;;       (unique-sym nil)
-   ;;       (p-chan 0))
-   ;;   ;; => Pour chaque paramètre
-   ;;   (dolist (p params)
-   ;;     ;; paramètre 0 = objet closure, donc on commence à partir du 1
-   ;;     (incf p-chan)
-   ;;     ;; => On crée un symbole unique pour représenter cette liaison
-   ;;     (setq unique-sym (make-symbol (string p)))
-   ;;     ;; => ajouter unique-sym dans le simple-lambda qu'on crée
-   ;;     (push unique-sym simple-lambda-vars)
-   
-   ;;     (if (member p special-vars)
-   ;;         ;; => Si c'est une variable spéciale,
-   ;;         (progn
-   ;;           ;; => On garde le nom d'origine comme nom de variable, et on utilise le nom unique comme symbole de sauvegarde.
-   ;;           ;; => au tout début du body, avant les autres set, sauvegarder la variable
-   ;;           (push `(setq ,unique-sym ,p) simple-lambda-backups)
-   ;;           ;; => au début du body, set la variable avec (get-param <numéro>)
-   ;;           (push `(setq ,p (get-param ,p-chan)) simple-lambda-get-params)
-   ;;           ;; => à la fin du body (dans un unwind-protect), restaurer la variable
-   ;;           (push `(setq ,p ,unique-sym) simple-lambda-restore))
-   ;;         ;; => Sinon (variable "normale" ou futurement capturée),
-   ;;         (progn
-   ;;           ;; => au début du body, set la variable unique-sym avec (get-param <numéro>)
-   ;;           (setq set-expression `(setq ,unique-sym (get-param p-chan)))
-   ;;           (push set-expression simple-lambda-get-params)
-   ;;           ;; => push (nom unique-sym nil <pas-de-get> <set-expression>) sur env-var
-   ;;           (push `(,p ,unique-sym nil nil (,set-expression)) (car env-var)))))
-   ;;   ;; => transforme le body dans env-var env-fun
-   ;;   (setq simple-lambda-body (squash-lisp-3 body captures env-var env-fun))
-   ;;   ;; => construit et renvoie le simple-lambda
-   ;;   ;; TODO : closure ? make-closure ? ???
-   ;;   `(simple-lambda ,simple-lambda-vars
-   ;;                   ,simple-lambda-backups
-   ;;                   ,simple-lambda-get-params
-   ;;                   ,simple-lambda-get-captured ;; Attention : encapsulé dans le car d'un cons.
-   ;;                   ,simple-lambda-body
-   ;;                   ,simple-lambda-restore))) ;; TODO : à la compilation, restore doit être unwind-protect du reste.
    
    ;; Appel de fonction
    ((funcall :fun _ :args _*)
@@ -646,7 +613,6 @@ On a donc une pile de cette forme (les vieilles données sont en haut) :
           (variable nil)
           (setq (eq type 'setq)))
       ;; => resultat := (get-var var) ou (setq var (transform val …))
-      ;; TODO : le "(setq resultat" a été rajouté, je ne sais pas pourquoi ça manquait.
       (setq resultat (if setq
                          (list 'setq var (squash-lisp-3 val captures env-var env-fun))
                          (list 'get-var var)))
@@ -706,11 +672,14 @@ On a donc une pile de cette forme (les vieilles données sont en haut) :
     (error "squash-lisp-3: not implemented yet: ~a" expr)))) ;; end squash-lisp-3
 
 (defun squash-lisp-3-check (expr)
+  "Vérifie si expr est bien un résultat valable de squash-lisp-3.
+Permet aussi d'avoir une «grammaire» du simple-lisp niveau 3.
+Attention : il y a quelques invariants qui ne sont pas présents dans cette vérification."
   (cond-match
    expr
-   ((simple-let :vars ($$*) :body _*)
+   ((simple-let :vars ($$*) :body _)
     (every #'squash-lisp-3-check body))
-   ((simple-lambda :nb-params (? numberp) :body _*)
+   ((simple-lambda :nb-params (? numberp) :body _)
     ;; nb-params = sans compter le paramètre de closure.
     (every #' squash-lisp-3-check body))
    ((funcall :function _ :args _*)
@@ -731,6 +700,57 @@ On a donc une pile de cette forme (les vieilles données sont en haut) :
     t)
    (_
     (error "squash-lisp-3-check: Assertion failed ! This should not be here : ~a" expr))))
+
+;; TODO : pouquoi les let de squash-lisp-3 sont à l'envers ?
+
+(defun make-sql4-lambda (name nbargs slet-vars slet-body)
+  ;; TODO reverse et append les slet-body et slet-vars
+  `(named-lambda ,name ,nbargs (simple-let ,slet-vars (progn ,@slet-body))))
+
+;; TODO : où mettre les globales ?
+(defun squash-lisp-4 (expr &optional (main-fun (make-symbol "main")))
+  (let ((stack nil)
+        (slet-vars nil)
+        (flat nil))
+    (labels ((rec (expr)
+               (cond-match
+                expr
+                ((simple-let :vars ($$*) :body _*)
+                 (push vars slet-vars)
+                 (rec body))
+                ((simple-lambda :nb-params (? numberp) :body _*)
+                 (let ((fun-name (make-symbol "a-function")))
+                   ;; nb-params = sans compter le paramètre de closure.
+                   ;; On push tout le monde
+                   (push slet-vars stack)
+                   ;; On raz pour un nouveau lambda
+                   (setq slet-vars nil)
+                   ;; On transforme le body : (rec body) ci-dessous,
+                   ;; et on crée la lambda et on l'ajoute au grand flat.
+                   ;; TODO : ajouter la liste de captures si nécessaire (?)
+                   (push (make-sql4-lambda fun-name nb-params slet-vars (rec body)) flat)
+                   ;; On réstaure tout le monde
+                   (setq slet-vars (pop stack))))
+                ((funcall :function _ :args _*)
+                 `(funcall ,(rec function) ,@(mapcar #'rec args)))
+                ((progn :body _*)
+                 (every #'squash-lisp-3-check body))
+                ((get-param (? numberp))
+                 expr)
+                ((setq :var $$ :val _)
+                 `(setq ,var ,(rec val)))
+                ((get-var :var $$)
+                 `(get-var ,var))
+                ((setq-indirection :var $$ :val _)
+                 `(setq-indirection ,var ,(rec val)))
+                ((get-var-indirection $$)
+                 `(get-var-indirection ,var))
+                ((quote :val _)
+                 expr)
+                (_
+                 (error "squash-lisp-4: Not implemented yet : ~a" expr)))))
+      (rec expr)
+      flat)))
 
 #|
 
