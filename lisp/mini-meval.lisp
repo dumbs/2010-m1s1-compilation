@@ -301,8 +301,6 @@ Mini-meval sera appellé sur des morceaux spécifiques du fichier source. Il fau
   
   (cond-match
    expr
-   ((debug :id _?)
-    (format t "~&debug :~&  id     = ~w~&  global = ~w~&  local  = ~w~&etat-special = ~w" id (etat-global etat) (etat-local etat) (etat-special etat)))
    #| 2) Cas des macros |#
    ((:name $$ :params _*)
     (let ((definition (assoc-etat name 'macro etat)))
@@ -389,8 +387,8 @@ Mini-meval sera appellé sur des morceaux spécifiques du fichier source. Il fau
           (pop-special-backups new-etat etat)
           res))))
    ;; Lorsqu'une fonction "littérale" est présente dans le code, on la renvoie telle qu'elle.
-   ((:fun . (? functionp))
-    fun)
+   ((? functionp)
+    expr)
    ((defun :name $ :lambda-list @ :body _*)
     (push-global! etat name 'function
                   (mini-meval `(lambda ,lambda-list ,@body) etat))
@@ -491,11 +489,11 @@ Mini-meval sera appellé sur des morceaux spécifiques du fichier source. Il fau
    ;; TODO : nil et t devraient être des defconst
    (nil
     nil)
-   ((:name . $$)
-    (let ((definition (assoc-etat name 'variable etat)))
+   ($$
+    (let ((definition (assoc-etat expr 'variable etat)))
       (if definition
           (cdr definition)
-          (mini-meval-error expr etat "Undefined variable : ~w." name))))))
+          (mini-meval-error expr etat "Undefined variable : ~w." expr))))))
 
 (defun push-functions (etat functions)
   (dolist (f functions)

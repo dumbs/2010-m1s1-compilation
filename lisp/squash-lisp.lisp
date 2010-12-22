@@ -51,7 +51,7 @@ Donc uniquement des adresses de portions de code généré par le compilateur, p
 et une cible mise en place par unwind-catch.
 
 Lorsqu'on rencontre une structure de contrôle comme la suivante :
-(unwind-catch object body [catch-code]?)
+(unwind-catch object body catch-code)
 
 Elle est compilée ainsi :
 
@@ -65,8 +65,8 @@ pop r2
 pop r2
 jmp @after-catch-code
 @catch-code
-[compile catch-code]   ;; seulement si catch-code est présent
-@after-catch-code      ;; seulement si catch-code est présent
+[compile catch-code]
+@after-catch-code
 
 De plus, un (unwind-protect body protect-code) est compilé ainsi :
 push @protect-code
@@ -263,6 +263,11 @@ On a donc une pile de cette forme (les vieilles données sont en haut) :
    ((progn :body _*)
     (cons 'progn (mapcar (lambda (form) (squash-lisp-1 form at-toplevel etat)) body)))
    
+   ((if :condition _ :si-vrai _ :si-faux _?)
+    `(if ,(squash-lisp-1 condition nil etat)
+         ,(squash-lisp-1 si-vrai nil etat)
+         ,(squash-lisp-1 (car si-faux) nil etat)))
+   
    ;; Lorsqu'on rentre dans un block, on met sur la pile un marqueur spécial avec un pointeur vers un objet créé à l'exécution.
    ((block :block-name $$ :body _*)
     (let ((retval-sym (make-symbol "RETVAL"))
@@ -273,7 +278,8 @@ On a donc une pile de cette forme (les vieilles données sont en haut) :
               ;; stocké dans le let et dans le unwind-catch
               (,block-id-sym (cons nil nil)))
           (unwind-catch ,block-id-sym
-                        (progn ,@body))
+                        (progn ,@body)
+                        nil)
           ,retval-sym)
        nil
        (push-local etat block-name 'squash-block-catch (cons block-id-sym retval-sym)))))
@@ -310,7 +316,8 @@ On a donc une pile de cette forme (les vieilles données sont en haut) :
                                      (push `(jump-label ,(car zone)) res) 
                                      (push `(progn ,@(cdr zone)) res))
                                    ;; (cdr (reverse …)) pour zapper le tout premier (jump-label …)
-                                   (cdr (reverse res)))))
+                                   (cdr (reverse res))))
+                        nil)
           nil)
        nil
        new-etat)))
@@ -325,7 +332,6 @@ On a donc une pile de cette forme (les vieilles données sont en haut) :
    ;; Le traitement de catch/throw est similaire, sauf que le pointeur est simplement un pointeur vers l'objet utilisé pour le catch / throw.
    ((catch :tag _ :body _*)
     (squash-lisp-1
-     ;; TODO : ajouter une variable globale singleton-catch-retval
      `(unwind-catch ,tag (progn ,@body) singleton-catch-retval)
      nil etat))
 
@@ -344,13 +350,10 @@ On a donc une pile de cette forme (les vieilles données sont en haut) :
     `(unwind-protect ,(squash-lisp-1 body nil etat)
        ,(squash-lisp-1 a-cleanup nil etat)))
     
-   ((unwind-catch :object _ :body _ :catch-code _?)
-    (if catch-code
-        `(unwind-catch ,(squash-lisp-1 object nil etat)
-                       ,(squash-lisp-1 body nil etat)
-                       ,(squash-lisp-1 (car catch-code) nil etat))
-        `(unwind-catch ,(squash-lisp-1 object nil etat)
-                       ,(squash-lisp-1 body nil etat))))
+   ((unwind-catch :object _ :body _ :catch-code _)
+    `(unwind-catch ,(squash-lisp-1 object nil etat)
+                   ,(squash-lisp-1 body nil etat)
+                   ,(squash-lisp-1 catch-code nil etat)))
    
    ((unwind :object _)
     `(unwind ,(squash-lisp-1 object nil etat)))
@@ -389,13 +392,20 @@ On a donc une pile de cette forme (les vieilles données sont en haut) :
                     ,(squash-lisp-1 `(progn ,@body) nil etat)))
    
    ;; TODO : defun
+   ;; TODO : defvar
+   ;; => TODO : global-setq
+   ;; => TODO : global-setfun
+   ;; => TODO : proclaim
    
-   ;; TODO : simplifier la lambda-list.
+   ;; TODO: simplifier la lambda-list.
    ((lambda :params _ :body _)
     `(lambda ,params ,(squash-lisp-1 body nil etat)))
    
    ((lambda :params _ :body _*)
     (squash-lisp-1 `(lambda ,params (progn ,@body)) nil etat))
+   
+   ((function :fun (lambda . _))
+    (squash-lisp-1 fun nil etat))
    
    ((function :fun $$)
     expr)
@@ -404,9 +414,11 @@ On a donc une pile de cette forme (les vieilles données sont en haut) :
     `(funcall ,@(mapcar (lambda (x) (squash-lisp-1 x nil etat)) (cons fun params))))
    
    ;; TODO : apply
+   ;; => TODO : définir la fonction funcall : (funcall #'funcall #'cons 1 2)
+   ;; => TODO : définir la fonction apply   : (funcall #'apply #'cons '(1 2))
    
-   ((:fun $$ :params _*)
-    `(funcall (function ,fun) ,@(mapcar (lambda (x) (squash-lisp-1 x nil etat)) params)))
+   ((setq :name $$ :value _)
+    `(setq ,name ,(squash-lisp-1 value)))
    
    ((quote _)
     expr)
@@ -414,12 +426,28 @@ On a donc une pile de cette forme (les vieilles données sont en haut) :
    ((? or numberp stringp)
     `(quote ,expr))
    
-   ((? symbolp)
-    `(get-var ,expr))
-   
    ;; TODO : nil et t devraient être des defconst
+   ;; Doit être avant les symboles
    (nil
     (quote nil))
+   
+   ($$
+    `(get-var ,expr))
+   
+   ;; Appels de fonction
+   ;; Doivent être après tout le monde.
+   ((:fun $$ :params _*)
+    (squash-lisp-1 `(funcall (function ,fun) ,@params)))
+   
+   ((:lambda (lambda . _) :params _*)
+    (squash-lisp-1 `(funcall ,lambda ,@params)))
+   
+   (((function :lambda (lambda . _)) :params . _)
+    (squash-lisp-1 `(funcall ,lambda ,@params)))
+   
+   (((function :name $$) :params _*)
+    (squash-lisp-1 `(funcall (function ,name) ,@params)))
+   
    (_
     (error "squash-lisp-1: Not implemented yet : ~a" expr))))
 
@@ -434,21 +462,19 @@ Attention : il y a quelques invariants qui ne sont pas présents dans cette vér
    ((unwind-protect :body _ :cleanup _)
     (and (squash-lisp-1-check body)
          (squash-lisp-1-check cleanup)))
-   ((unwind-catch :object _ :body _ :catch-code _?)
+   ((unwind-catch :object _ :body _ :catch-code _)
     (and (squash-lisp-1-check object)
          (squash-lisp-1-check body)
-         (if catch-code
-             (squash-lisp-1-check (car catch-code))
-             t)))
+         (squash-lisp-1-check catch-code)))
    ((unwind :object _)
     (squash-lisp-1-check object))
    ((half-unwind :object _ :post-unwind-code _)
     (and (squash-lisp-1-check object)
          (squash-lisp-1-check post-unwind-code)))
    ((jump-label :name _) ;; TODO : être plus précis que "_"
-    t) ;; TODO : t ? ou récursion ?
+    t)
    ((jump :dest _) ;; TODO : être plus précis que "_"
-    t) ;; TODO : t ? ou récursion ?
+    t)
    (((? (member x '(let let* flet labels))) ((:name $$ :value _)*) :body _)
     (every #'squash-lisp-1-check (cons body value)))
    ((lambda :params ($$*) :body _)
@@ -513,14 +539,14 @@ Attention : il y a quelques invariants qui ne sont pas présents dans cette vér
       (setq simple-let-body (squash-lisp-3 body captures new-env-var env-fun))
       ;; => construit et renvoie le simple-let
       (if simple-let-restore
-          `(simple-let ,simple-let-vars
+          `(simple-let ,(reverse simple-let-vars)
                        (unwind-protect
-                            (progn ,@simple-let-backups  ;; Ne peut / doit pas déclenger d'unwind
-                                   ,@simple-let-pre-body ;; À partir d'ici on peut
+                            (progn ,@(reverse simple-let-backups)  ;; Ne peut / doit pas déclenger d'unwind
+                                   ,@(reverse simple-let-pre-body) ;; À partir d'ici on peut
                                    ,simple-let-body)
-                         (progn ,@simple-let-restore)))
-          `(simple-let ,simple-let-vars
-                       (progn ,@simple-let-pre-body
+                         (progn ,@(reverse simple-let-restore))))
+          `(simple-let ,(reverse simple-let-vars)
+                       (progn ,@(reverse simple-let-pre-body)
                               ,simple-let-body)))))
    
    ;; flet et labels
@@ -554,15 +580,16 @@ Attention : il y a quelques invariants qui ne sont pas présents dans cette vér
       ;; => On transforme le body dans new-env-var new-env-fun
       (setq simple-let-body (squash-lisp-3 body captures new-env-var new-env-fun))
       ;; => construit et renvoie le simple-let
-      `(simple-let ,simple-let-vars
-                   (progn ,@simple-let-pre-body
+      `(simple-let ,(reverse simple-let-vars)
+                   (progn ,@(reverse simple-let-pre-body)
                           ,simple-let-body))))
    
    ;; lambda
    ;; Beaucoup de code dupliqué entre les let[*] / lambda / flet / labels
    ;; TODO : gérer le &rest
    ((lambda :params ($$*) :body _)
-    (let ((simple-lambda-captures (list nil)))
+    (let ((simple-lambda-captures (list nil))
+          (simple-lambda-body))
       ;; Shift l'environnement courant en le remplaçant par un tout nouveau tout bô.
       (setq env-var (cons nil env-var))
       (push simple-lambda-captures captures)
@@ -571,14 +598,18 @@ Attention : il y a quelques invariants qui ne sont pas présents dans cette vér
       ;; Création du simple-lambda
       ;; TODO : insérer du code pour avoir les captures.
       ;; TODO : closure ? make-closure ? ???
+      (setq simple-lambda-body
+            (squash-lisp-3
+             `(let ,(loop
+                       for i upfrom 1
+                       for var in params
+                       collect `(,var (get-param ,i)))
+                ,body)))
+      (print simple-lambda-captures)
+      (print captures)
       `(simple-lambda
         ,(length params)
-        ,(squash-lisp-3
-          `(let ,(loop
-                    for i upfrom 1
-                    for var in params
-                    collect `(,var (get-param ,i)))
-             ,body)))))
+        ,simple-lambda-body)))
    
    ;; Appel de fonction
    ((funcall :fun _ :args _*)
@@ -604,7 +635,8 @@ Attention : il y a quelques invariants qui ne sont pas présents dans cette vér
    
    ;; Référence à une variable
    ;; (get-var var)
-   ((:type (? or (eq x 'get-var) (eq x 'setq)) :var $$)
+   ((:type (? or (eq x 'get-var) (eq x 'setq)) :var $$ :val _?)
+    (format t "~&var:~a~&env:~a~&~%" var env-var)
     (let ((resultat nil)
           (search-env-var env-var)
           (envs nil)
@@ -612,10 +644,6 @@ Attention : il y a quelques invariants qui ne sont pas présents dans cette vér
           (is-global nil)
           (variable nil)
           (setq (eq type 'setq)))
-      ;; => resultat := (get-var var) ou (setq var (transform val …))
-      (setq resultat (if setq
-                         (list 'setq var (squash-lisp-3 val captures env-var env-fun))
-                         (list 'get-var var)))
       ;; => chercher la définition de la variable.
       (tagbody
        search-loop
@@ -630,13 +658,18 @@ Attention : il y a quelques invariants qui ne sont pas présents dans cette vér
            (setq search-env-var (cdr search-env-var))
            (go search-loop))
        end)
+      ;; => resultat := (get-var var) ou (setq var (transform val …))
+      (setq resultat (if setq
+                         (list 'setq (or (second variable) var)
+                               (squash-lisp-3 (car val) captures env-var env-fun))
+                         (list 'get-var (or (second variable) var))))
       ;; => Si la variable n'existe pas (globale donc)
       (when (not variable)
         (when (not is-global) (error "Assertion failed !!! La variable devrait être marquée comme globale apr le tagbody qu'on vient de passer.")) ;; DEBUG
         ;; => la pusher dans l'env-var le plus haut (last …) == search-env-var
         (if setq 
-            (push (setq variable `(,var ,var nil nil resultat)) (car search-env-var))
-            (push (setq variable `(,var ,var nil resultat nil)) (car search-env-var))))
+            (push (setq variable `(,var ,var nil nil ,resultat)) (car search-env-var))
+            (push (setq variable `(,var ,var nil ,resultat nil)) (car search-env-var))))
       ;; => Si elle ne se trouve ni dans l'env-var local (car) ni dans l'env-var global (last), alors c'est une capture
       ;; => Autre possibilité : la variable est spéciale, on la traite alors comme si elle était non capturée.
       (if (not (or (length=1 envs) is-global (eq 'special (third variable))))
@@ -647,18 +680,18 @@ Attention : il y a quelques invariants qui ne sont pas présents dans cette vér
             ;; => si c'est une nouvelle capture
             (unless (eq (third variable) 'captured)
               ;; => Pour chaque environnement intermédiaire + l'env-var local,
-              (dolist (e envs)
+              (dotimes (i (length envs))
                 ;; => On marque la variable comme capturée sur tous les niveaux entre sa déclaration et son utilisation
-                (push-new var (car through-captures))
-                (setq through-captures (cdr through-captures))
-                ;; => On transforme tous les (get-var var) en (get-var-indirection var)
-                (dolist (reference-get (fourth variable))
-                  (setf (car reference-get) 'get-var-indirection))
-                (setf (fourth variable) nil)
-                ;; => On transforme tous les (setq var val) en (setq-indirection var val)
-                (dolist (reference-set (fifth variable))
-                  (setf (car reference-set) 'setq-indirection))
-                (setf (fifth variable) nil))))
+                (pushnew var (car through-captures))
+                (setq through-captures (cdr through-captures)))
+              ;; => On transforme tous les (get-var var) en (get-var-indirection var)
+              (dolist (reference-get (fourth variable))
+                (setf (car reference-get) 'get-var-indirection))
+              (setf (fourth variable) nil)
+              ;; => On transforme tous les (setq var val) en (setq-indirection var val)
+              (dolist (reference-set (fifth variable))
+                (setf (car reference-set) 'setq-indirection))
+              (setf (fifth variable) nil)))
           ;; => Sinon, ce n'est pas (encore) une capture
           ;; => push resultat sur l'entrée de la variable dans env-var.
           (if setq
@@ -708,7 +741,7 @@ Attention : il y a quelques invariants qui ne sont pas présents dans cette vér
   `(named-lambda ,name ,nbargs (simple-let ,slet-vars (progn ,@slet-body))))
 
 ;; TODO : où mettre les globales ?
-(defun squash-lisp-4 (expr &optional (main-fun (make-symbol "main")))
+(defun squash-lisp-4 (expr)
   (let ((stack nil)
         (slet-vars nil)
         (flat nil))
@@ -739,13 +772,13 @@ Attention : il y a quelques invariants qui ne sont pas présents dans cette vér
                  expr)
                 ((setq :var $$ :val _)
                  `(setq ,var ,(rec val)))
-                ((get-var :var $$)
-                 `(get-var ,var))
+                ((get-var $$)
+                 expr)
                 ((setq-indirection :var $$ :val _)
                  `(setq-indirection ,var ,(rec val)))
                 ((get-var-indirection $$)
-                 `(get-var-indirection ,var))
-                ((quote :val _)
+                 expr)
+                ((quote _)
                  expr)
                 (_
                  (error "squash-lisp-4: Not implemented yet : ~a" expr)))))

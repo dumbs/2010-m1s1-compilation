@@ -80,9 +80,8 @@
                 (format t "~&              comparison : ~w~&" ,compare)
                 nil)))))))
 
-(defvar b '(x x))
 (defmacro generates-error-p (code)
-  `(car (handler-case (progn (push 'a b) (cons nil ,code))
+  `(car (handler-case (cons nil ,code)
           (error (e) (cons t e)))))
 
 (defmacro deftest-error (module test &optional (expected t))
