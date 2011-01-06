@@ -296,7 +296,7 @@ Attention : il y a quelques invariants qui ne sont pas présents dans cette vér
     t)
    ((jump :dest _) ;; TODO : être plus précis que "_"
     t)
-   (((? (member x '(let let* flet labels))) ((:name $$ :value _)*) :body _)
+   (((? (member x '(let let* simple-flet simple-labels))) ((:name $$ :value _)*) :body _)
     (every #'squash-lisp-1-check (cons body value)))
    ((lambda :params ($$*) :body _)
     (squash-lisp-1-check body))
@@ -308,6 +308,8 @@ Attention : il y a quelques invariants qui ne sont pas présents dans cette vér
     t)
    ((get-var $$)
     t)
+   ((setq :name $$ :value _)
+    (squash-lisp-1-check value))
    (_
     (error "squash-lisp-1-check: Assertion failed ! This should not be here : ~a" expr))))
 

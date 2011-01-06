@@ -209,4 +209,36 @@
        (consp (cdr l))
        (not (cddr l))))
 
+(defun derived-symbol (symbol)
+  (make-symbol (format nil "~a-~a" (string symbol) (random 1000))))
+
+(defmacro with-symbol (var name &rest body)
+  `(let ((,var (make-symbol ,name)))
+     ,@body))
+
+(defmacro with-derived-symbol (var symbol &rest body)
+  ;; TODO : utiliser un vrai compteur.
+  `(with-symbol (,var (derived-symbol ,symbol))
+     ,@body))
+    
+(defmacro assoc-or (key alist &rest body)
+  `(let ((assoc (assoc ,key ,alist)))
+     (if assoc
+         (cdr assoc)
+         (progn ,@body))))
+
+(defmacro assoc-or-push (key datum alist-place)
+  "Fait un assoc de key dans alist-place, et si l'association échoue,
+   push (cons key datum) sur alist-place.
+   Renvoie (cdr (assoc key alist-place)) ou bien datum."
+  ;; TODO : n'évaluer alist-place et key qu'une seule fois.
+  (let ((assoc-sym (make-symbol "assoc"))
+        (datum-sym (make-symbol "datum")))
+  `(let ((,assoc-sym (assoc ,key ,alist-place)))
+     (if ,assoc-sym
+         (cdr ,assoc-sym)
+         (let ((,datum-sym ,datum))
+           (push (cons ,key ,datum-sym) ,alist-place)
+           ,datum-sym)))))
+
 (provide 'util)

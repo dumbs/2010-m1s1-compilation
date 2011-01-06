@@ -3,8 +3,10 @@
 
 ;; À la fin du fichier se trouvent des notes sur le fonctionnement (théorique) de squash-lisp.
 
-;; TODO : emballer le résultat de squash-lisp dans un (macrolet ...)
-;; TODO : pour les "special-operator" qu'on rajoute.
+;; TODO : emballer le résultat de squash-lisp dans un (macrolet ...) pour les "special-operator" qu'on rajoute.
+
+;; TODO : faire une fonction permettant de tester si la valeur de retour d'un squash-lisp est sémantiquement équivalente au code passé en paramètre.
+;; TODO : tests unitaires.
 
 (require 'squash-lisp-1 "squash-lisp-1")
 (require 'squash-lisp-2 "squash-lisp-2")
