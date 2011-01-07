@@ -1,7 +1,7 @@
 (require 'match "match")
 (require 'util "match") ;; derived-symbol, assoc-or, assoc-or-push
 
-(defun squash-lisp-2 (expr env-var env-fun globals);&optional (globals (cons nil nil)))
+(defun squash-lisp-2 (expr &optional env-var env-fun (globals (cons nil nil)))
   "Transforme les let, let*, flet, labels, lambda en simple-let et simple-lambda,
    détecte les variables globales et stocke leurs noms dans une liste,
    et rend tous les noms de fonction et de variables _locales_ uniques."
@@ -35,8 +35,31 @@
                                       `(setq ,(cdr n) ,(squash-lisp-2 v env-var env-fun globals)))
                                     name value)
                           ,(squash-lisp-2 body new-env-var env-fun globals)))))
-   (((? (member x '(let* flet labels))) ((:name $$ :value _)*) :body _)
-    (every #'squash-lisp-1-check (cons body value)))
+   (((? (eq x 'let*)) ((:name $$ :value _)*) :body _)
+    (setq name (mapcar (lambda (x) (cons x (derived-symbol x))) name))
+    (let ((new-env-var env-var)) ;; old = ((new-env-var (append name env-var)))
+      `(simple-let ,(mapcar #'cdr name)
+                   (progn ,@(mapcar (lambda (n v)
+                                      (push (cons n v) new-env-var) ;; Ajouté
+                                      `(setq ,(cdr n) ,(squash-lisp-2 v new-env-var env-fun globals))) ;; env-var -> new-env-var !!!
+                                    name value)
+                          ,(squash-lisp-2 body new-env-var env-fun globals)))))
+   ((simple-flet ((:name $$ :value _)*) :body _)
+    (setq name (mapcar (lambda (x) (cons x (derived-symbol x))) name))
+    (let ((new-env-fun (append name env-fun))) ;; new-env-var -> new-env-fun   +   env-var -> env-fun
+      `(simple-let ,(mapcar #'cdr name)
+                   (progn ,@(mapcar (lambda (n v)
+                                      `(setq ,(cdr n) ,(squash-lisp-2 v env-var env-fun globals)))
+                                    name value)
+                          ,(squash-lisp-2 body env-var new-env-fun globals))))) ;; env-var -> env-fun
+   ((simple-flet ((:name $$ :value _)*) :body _)
+    (setq name (mapcar (lambda (x) (cons x (derived-symbol x))) name))
+    (let ((new-env-fun (append name env-fun))) ;; new-env-var -> new-env-fun   +   env-var -> env-fun
+      `(simple-let ,(mapcar #'cdr name)
+                   (progn ,@(mapcar (lambda (n v)
+                                      `(setq ,(cdr n) ,(squash-lisp-2 v env-var new-env-fun globals))) ;; env-fun -> new-env-fun
+                                    name value)
+                          ,(squash-lisp-2 body env-var new-env-fun globals))))) ;; env-var -> env-fun
    ;; TODO
    ((lambda :params ($$*) :body _)
     ;; TODO : simplifier la lambda-list
@@ -62,8 +85,6 @@
    (_
     (error "squash-lisp-2: Assertion failed ! This should not be here : ~a" expr))))
 
-;; (let ((a (cons nil nil)))
-;;   (squash-lisp-2 '(let ((x (quote 1)) (y (quote 2))) (funcall (function +) (get-var x) (get-var y) (quote 1))) nil nil a)
-;;   a)
+(squash-lisp-2 '(let ((x (quote 123))) (let* ((x (quote 1)) (y (get-var x))) (funcall (function +) (get-var x) (get-var y) (quote 1)))))
 
 (provide 'squash-lisp-2)
