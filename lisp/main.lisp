@@ -9,5 +9,6 @@
 (load "match")
 (load "mini-meval")
 (load "squash-lisp")
+(load "equiv-tests")
 
 (provide 'main)
