@@ -9,6 +9,9 @@
    expr
    ((progn :body _*)
     `(progn ,@(mapcar (lambda (x) (squash-lisp-2 x env-var env-fun globals)) body)))
+   ;; simple-tagbody est équivalent à un progn, mais nécessaire pour les macrolet.
+   ((simple-tagbody :body _*)
+    `(simple-tagbody ,@(mapcar (lambda (x) (squash-lisp-2 x env-var env-fun globals)) body)))
    ((unwind-protect :body _ :cleanup _)
     `(unwind-protect ,(squash-lisp-2 body env-var env-fun globals)
        ,(squash-lisp-2 cleanup env-var env-fun globals)))
@@ -21,11 +24,9 @@
    ((half-unwind :object _ :post-unwind-code _)
     `(half-unwind ,(squash-lisp-2 object env-var env-fun globals)
                   ,(squash-lisp-2 post-unwind-code env-var env-fun globals)))
-   ;; TODO : symbole ?
-   ((jump-label :name _) ;; TODO : être plus précis que "_"
+   ((jump-label :name $$)
     expr)
-   ;; TODO : symbole ?
-   ((jump :dest _) ;; TODO : être plus précis que "_"
+   ((jump :dest $$)
     expr)
    ((let ((:name $$ :value _)*) :body _)
     (setq name (mapcar (lambda (x) (cons x (derived-symbol x))) name))
@@ -73,11 +74,9 @@
               ,@(mapcar (lambda (x) (squash-lisp-2 x env-var env-fun globals)) params)))
    ((quote _)
     expr)
-   ;; TODO
    ((get-var :var $$)
     (assoc-or var env-var
               (assoc-or-push var (derived-symbol var) (car globals))))
-   ;; TODO
    ((setq :name $$ :value _)
     `(setq ,(assoc-or name env-var
                       (assoc-or-push name (derived-symbol name) (car globals)))

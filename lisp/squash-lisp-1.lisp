@@ -131,22 +131,22 @@
         (setf (car zone) unique-label-sym))
       (squash-lisp-1
        `(let ((,tagbody-id-sym (cons nil nil)))
-          (unwind-catch ,tagbody-id-sym
-                        (progn
-                          ,@(progn (dolist (zone spliced-body)
-                                     (push `(jump-label ,(car zone)) res) 
-                                     (push `(progn ,@(cdr zone)) res))
-                                   ;; (cdr (reverse …)) pour zapper le tout premier (jump-label …)
-                                   (cdr (reverse res))))
-                        nil)
+           (tagbody-unwind-catch ,tagbody-id-sym
+                         (progn
+                           ,@(progn (dolist (zone spliced-body)
+                                      (push `(jump-label ,(car zone)) res) 
+                                      (push `(progn ,@(cdr zone)) res))
+                                    ;; (cdr (reverse …)) pour zapper le tout premier (jump-label …)
+                                    (cdr (reverse res))))
+                         nil)
           nil)
        nil
        new-etat)))
    
-   ((go :target $$)
+   ((go :target (? or symbolp numberp))
     (let ((association (assoc-etat target 'squash-tagbody-catch etat)))
       (unless association (error "Squash-Lisp-1 : Can't go to label ~w, it is inexistant or not lexically apparent." target))
-      (squash-lisp-1 `(progn (half-unwind ,(cadr association)
+      (squash-lisp-1 `(progn (unwind-for-tagbody ,(cadr association)
                                         (jump ,(cddr association))))
                    nil etat)))
    
@@ -171,21 +171,21 @@
     `(unwind-protect ,(squash-lisp-1 body nil etat)
        ,(squash-lisp-1 a-cleanup nil etat)))
     
-   ((unwind-catch :object _ :body _ :catch-code _)
-    `(unwind-catch ,(squash-lisp-1 object nil etat)
-                   ,(squash-lisp-1 body nil etat)
-                   ,(squash-lisp-1 catch-code nil etat)))
+   ((:type (? (member x '(unwind-catch tagbody-unwind-catch))) :object _ :body _ :catch-code _)
+    `(,type ,(squash-lisp-1 object nil etat)
+            ,(squash-lisp-1 body nil etat)
+            ,(squash-lisp-1 catch-code nil etat)))
    
    ((unwind :object _)
     `(unwind ,(squash-lisp-1 object nil etat)))
    
-   ((half-unwind :object _ :post-unwind-code _)
-    `(half-unwind ,(squash-lisp-1 object nil etat) ,(squash-lisp-1 post-unwind-code nil etat)))
+   ((unwind-for-tagbody :object _ :post-unwind-code _)
+    `(unwind-for-tagbody ,(squash-lisp-1 object nil etat) ,(squash-lisp-1 post-unwind-code nil etat)))
    
-   ((jump-label :name _)
+   ((jump-label :name $$)
     expr)
    
-   ((jump :dest _)
+   ((jump :dest $$)
     expr)
 
    ;; Transformation des (let[*] (var1 var2 var3) …) en (let[*] ((var1 nil) (var2 nil) (var3 nil)) …)
@@ -201,15 +201,15 @@
        ,(squash-lisp-1 `(progn ,@body) nil etat)))
    
    ((flet ((:name $$ :params @ :fbody _*)*) :body _*)
-    `(simple-flet ,@(mapcar (lambda (name params fbody)
-                              (cons name (squash-lisp-1 `(lambda ,params (progn ,@fbody)) nil etat)))
-                            name params fbody)
+    `(simple-flet ,(mapcar (lambda (name params fbody)
+                             (list name (squash-lisp-1 `(lambda ,params (progn ,@fbody)) nil etat)))
+                           name params fbody)
                   ,(squash-lisp-1 `(progn ,@body) nil etat)))
    
    ((labels ((:name $$ :params @ :fbody _*)*) :body _*)
-    `(simple-labels ,@(mapcar (lambda (name params fbody)
-                                (cons name (squash-lisp-1 `(lambda ,params (progn ,@fbody)) nil etat)))
-                              name params fbody)
+    `(simple-labels ,(mapcar (lambda (name params fbody)
+                               (list name (squash-lisp-1 `(lambda ,params (progn ,@fbody)) nil etat)))
+                             name params fbody)
                     ,(squash-lisp-1 `(progn ,@body) nil etat)))
    
    ;; TODO : defun
@@ -272,6 +272,54 @@
    (_
     (error "squash-lisp-1: Not implemented yet : ~a" expr))))
 
+(defun squash-lisp-1-wrap (expr)
+  `(macrolet ((unwind-catch (object body catch-code)
+                (let ((bname (make-symbol "block")))
+                  `(block ,bname
+                     (catch ,object (return-from ,bname ,body))
+                     ,catch-code
+                     nil)))
+              (tagbody-unwind-catch (object body catch-code)
+                catch-code ;; unused variable
+                ;; les (progn object) et (progn x) sert à permettre l'expansion des macros sur x
+                ;; (il est possible qu'elles ne soient pas expansées à la racine du tagbody)
+                `(tagbody (progn ,object) ,@(mapcar (lambda (x) (if (eq (car x) 'jump-label) (cadr x) (progn x))) (cdr body))))
+              (unwind (object)
+                `(throw ,object nil))
+              (unwind-for-tagbody (object post-unwind-code)
+                object ;; unused variable
+                post-unwind-code)
+              ;;Les macros ne sont pas expansées à la racine d'un tagbody, donc on expanse à la main
+              ;;  les jump-label lorsqu'on rencontre un tagbody-unwind-catch.
+              ;;(jump-label (name)
+              ;;  name)
+              (jump (dest)
+                `(go ,dest))
+              (simple-flet (spec &rest body)
+                `(flet ,(mapcar (lambda (x) (list (car x) (second (second x)) (third (second x)))) spec) ;; nom, lambda-list, fbody
+                   ,@body))
+              (simple-labels (spec &rest body)
+                `(labels ,(mapcar (lambda (x) (list (car x) (second (second x)) (third (second x)))) spec) ;; nom, lambda-list, fbody
+                   ,@body))
+              (get-var (x)
+                x))
+     ,expr))
+
+(eval (squash-lisp-1-wrap
+       '(unwind-catch 'foo
+         (progn (print 1)
+                (unwind 'foo)
+                (print 2))
+         (print 3))))
+
+(eval (squash-lisp-1-wrap (squash-lisp-1 '(flet ((foo (x) (+ x 1)) (bar (y z) (cons y z))) (list (foo 3) (bar 4 5))))))
+
+(eval (squash-lisp-1-wrap (squash-lisp-1 '(tagbody a 1 (print 'x) b (print 'y) (go 3) d (print 'z) 3 (print 'f)))))
+
+;; 
+;; (squash-lisp-1 '(flet ((foo (x) (+ x 1)) (bar (y z) (cons y z))) (list (foo 3) (bar 4 5))))
+
+
 (defun squash-lisp-1-check (expr)
   "Vérifie si expr est bien un résultat valable de squash-lisp-1.
 Permet aussi d'avoir une «grammaire» du simple-lisp niveau 1.
@@ -283,18 +331,19 @@ Attention : il y a quelques invariants qui ne sont pas présents dans cette vér
    ((unwind-protect :body _ :cleanup _)
     (and (squash-lisp-1-check body)
          (squash-lisp-1-check cleanup)))
-   ((unwind-catch :object _ :body _ :catch-code _)
+   ;; tagbody-unwind-catch est équivalent à unwind-catch, mais nécessaire pour les macrolet.
+   (((? (member x '(unwind-catch tagbody-unwind-catch))) :object _ :body _ :catch-code _)
     (and (squash-lisp-1-check object)
          (squash-lisp-1-check body)
          (squash-lisp-1-check catch-code)))
    ((unwind :object _)
     (squash-lisp-1-check object))
-   ((half-unwind :object _ :post-unwind-code _)
+   ((unwind-for-tagbody :object _ :post-unwind-code _)
     (and (squash-lisp-1-check object)
          (squash-lisp-1-check post-unwind-code)))
-   ((jump-label :name _) ;; TODO : être plus précis que "_"
+   ((jump-label :name $$)
     t)
-   ((jump :dest _) ;; TODO : être plus précis que "_"
+   ((jump :dest $$)
     t)
    (((? (member x '(let let* simple-flet simple-labels))) ((:name $$ :value _)*) :body _)
     (every #'squash-lisp-1-check (cons body value)))
@@ -311,7 +360,8 @@ Attention : il y a quelques invariants qui ne sont pas présents dans cette vér
    ((setq :name $$ :value _)
     (squash-lisp-1-check value))
    (_
-    (error "squash-lisp-1-check: Assertion failed ! This should not be here : ~a" expr))))
+    (warn "squash-lisp-1-check: Assertion failed ! This should not be here : ~a" expr)
+    nil)))
 
 #|
 Notes sur l'implémentation d'unwind.
@@ -352,7 +402,7 @@ jmp @after-protect-code
 jmp @start-unwind
 @after-protect-code
 
-(half-unwind object post-unwind-code) est compilé ainsi :
+(unwind-for-tagbody object post-unwind-code) est compilé ainsi :
 jsr @find-unwind-destination
 mov [immediate]@post-unwind-code @singleton-post-unwind-code
 add 3 sp                ;; On "re-push" l'adresse de la cible, l'objet et le marqueur, mettre 2 au lieu de 3 si on n'a pas de marqueur.

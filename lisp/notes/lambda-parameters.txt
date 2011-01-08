@@ -1,0 +1,7 @@
+implémentation de sbcl :
+
+; in: LAMBDA (#:WHOLE2122 #:ENVIRONMENT2123)
+;     (LET* ((OBJECT (CAR (CDR #:WHOLE2122)))
+;            (BODY (CAR (CDR #)))
+;            (CATCH-CODE (CAR (CDR #))))
+;       (BLOCK TAGBODY-UNWIND-CATCH CATCH-CODE `(TAGBODY ,@(CDR BODY))))
