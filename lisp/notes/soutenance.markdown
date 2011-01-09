@@ -30,7 +30,7 @@ Cette transformation est assurée par la fonction squash-lisp décrite ci-dessou
 =============
 * En 3 passes :
   * Passe 1 :
-    * macro-expansion (on utilise `mini-meval`) et `eval-when`
+    * macro-expansion (on utilise `mini-meval`) et `eval-when`.
     * simplification globale de la syntaxe :
       * 
             (let (a (b 2) c) (list a b c))
@@ -51,10 +51,8 @@ Cette transformation est assurée par la fonction squash-lisp décrite ci-dessou
           → (simple-let (a b) (setq a nil) (setq b 2) (list a b))
     * simplification de la lambda-list (élimination de `&optional`, `&rest`, `&key`, `&allow-other-keys`, `&aux`)
     * suppression des paramètres de la `lambda` :
-      ```lisp
-      (lambda (x y) (+ x y))
-      → (simple-lambda (simple-let (x y) (setq x (get-param 0)) (setq y (get-param 1)) (+ x y)))
-```
+          (lambda (x y) (+ x y))
+          → (simple-lambda (simple-let (x y) (setq x (get-param 0)) (setq y (get-param 1)) (+ x y)))
   * Passe 3
     * On lorsqu'une variable à l'intérieur d'une `lambda` référence une déclaration à l'extérieur de la `lambda`, on la marque comme étant *capturée*.
     * On fusionne tous les `let` d'une `lambda` en les remontant dans un `let` unique à la racine de la `lamdba`.
@@ -94,7 +92,7 @@ Ramasse-miettes
 * On a un gc très simpliste qui copie les données d'une zone de la mémoire vers une autre et vice versa à chaque fois qu'elle est pleine.
 * Ce type de gc s'appelle un [two-finger garbage collector](http://en.wikipedia.org/wiki/Cheney's_algorithm "Article wikipédia").
 * La raison de ce choix de modèle de gc est que les autres types de gc nécessitent une occupation variable de la mémoire pour l'exécution du
-  gc (nécessaire pour le parcours en largeur/profondeur) qui peut être aussi grosse que la mémoire occupée (O(n)) dans le pire des cas.
+  gc (nécessaire pour le parcours en largeur/profondeur) qui peut être aussi grosse que la mémoire occupée (𝑶(𝑛)) dans le pire des cas.
 
 Implémentation de fonctions LISP
 ================================
