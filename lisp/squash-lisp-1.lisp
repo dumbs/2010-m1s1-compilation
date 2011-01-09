@@ -100,8 +100,7 @@
               (,block-id-sym (cons nil nil)))
           (unwind-catch ,block-id-sym
                         (progn ,@body)
-                        nil)
-          ,retval-sym)
+                        ,retval-sym))
        nil
        (push-local etat block-name 'squash-block-catch (cons block-id-sym retval-sym)))))
    
@@ -112,7 +111,7 @@
    ((return-from :block-name $$ :value _)
     (let ((association (assoc-etat block-name 'squash-block-catch etat)))
       (unless association (error "Squash-Lisp-1 : Can't return from block ~w, it is inexistant or not lexically apparent." block-name))
-      (squash-lisp-1 `(progn (setq ,(cddr association) value)
+      (squash-lisp-1 `(progn (setq ,(cddr association) ,value)
                            (unwind ,(cadr association)))
                    nil etat)))
    
@@ -158,8 +157,8 @@
 
    ((throw :tag _ :result _)
     (squash-lisp-1
-     `(progn (setq singleton-catch-retval value)
-             (unwind ,tag (progn ,@result)))
+     `(progn (setq singleton-catch-retval ,result)
+             (unwind ,tag))
      nil etat))
    
    ;; Simplification du unwind-protect
@@ -190,13 +189,13 @@
 
    ;; Transformation des (let[*] (var1 var2 var3) …) en (let[*] ((var1 nil) (var2 nil) (var3 nil)) …)
    ((:type (? or (eq x 'let) (eq x 'let*)) :bindings (? and consp (find-if #'symbolp x)) :body . _)
-    (squash-lisp-1 `(,type ,(mapcar (lambda (b) (if (consp b) b `(b nil))) bindings) ,@body)))
+    (squash-lisp-1 `(,type ,(mapcar (lambda (b) (if (consp b) b `(b nil))) bindings) ,@body) nil etat))
    
    ((let ((:name $$ :value _)*) :body _*)
     `(let ,(mapcar (lambda (n v) `(,n ,(squash-lisp-1 v nil etat))) name value)
        ,(squash-lisp-1 `(progn ,@body) nil etat)))
    
-   ((let* ((:name $$ :value _)*) :body _*)
+   (((? (eq x 'let*)) ((:name $$ :value _)*) :body _*)
     `(let* ,(mapcar (lambda (n v) `(,n ,(squash-lisp-1 v nil etat))) name value)
        ,(squash-lisp-1 `(progn ,@body) nil etat)))
    
@@ -239,7 +238,7 @@
    ;; => TODO : définir la fonction apply   : (funcall #'apply #'cons '(1 2))
    
    ((setq :name $$ :value _)
-    `(setq ,name ,(squash-lisp-1 value)))
+    `(setq ,name ,(squash-lisp-1 value nil etat)))
    
    ((quote _)
     expr)
@@ -250,7 +249,7 @@
    ;; TODO : nil et t devraient être des defconst
    ;; Doit être avant les symboles
    (nil
-    (quote nil))
+    ''nil)
    
    ($$
     `(get-var ,expr))
@@ -258,16 +257,16 @@
    ;; Appels de fonction
    ;; Doivent être après tout le monde.
    ((:fun $$ :params _*)
-    (squash-lisp-1 `(funcall (function ,fun) ,@params)))
+    (squash-lisp-1 `(funcall (function ,fun) ,@params) nil etat))
    
    ((:lambda (lambda . _) :params _*)
-    (squash-lisp-1 `(funcall ,lambda ,@params)))
+    (squash-lisp-1 `(funcall ,lambda ,@params) nil etat))
    
    (((function :lambda (lambda . _)) :params . _)
-    (squash-lisp-1 `(funcall ,lambda ,@params)))
+    (squash-lisp-1 `(funcall ,lambda ,@params) nil etat))
    
    (((function :name $$) :params _*)
-    (squash-lisp-1 `(funcall (function ,name) ,@params)))
+    (squash-lisp-1 `(funcall (function ,name) ,@params) nil etat))
    
    (_
     (error "squash-lisp-1: Not implemented yet : ~a" expr))))
@@ -277,8 +276,7 @@
                 (let ((bname (make-symbol "block")))
                   `(block ,bname
                      (catch ,object (return-from ,bname ,body))
-                     ,catch-code
-                     nil)))
+                     ,catch-code)))
               (tagbody-unwind-catch (object body catch-code)
                 catch-code ;; unused variable
                 ;; les (progn object) et (progn x) sert à permettre l'expansion des macros sur x
@@ -305,21 +303,6 @@
                 x))
      ,expr))
 
-(eval (squash-lisp-1-wrap
-       '(unwind-catch 'foo
-         (progn (print 1)
-                (unwind 'foo)
-                (print 2))
-         (print 3))))
-
-(eval (squash-lisp-1-wrap (squash-lisp-1 '(flet ((foo (x) (+ x 1)) (bar (y z) (cons y z))) (list (foo 3) (bar 4 5))))))
-
-(eval (squash-lisp-1-wrap (squash-lisp-1 '(tagbody a 1 (print 'x) b (print 'y) (go 3) d (print 'z) 3 (print 'f)))))
-
-;; 
-;; (squash-lisp-1 '(flet ((foo (x) (+ x 1)) (bar (y z) (cons y z))) (list (foo 3) (bar 4 5))))
-
-
 (defun squash-lisp-1-check (expr)
   "Vérifie si expr est bien un résultat valable de squash-lisp-1.
 Permet aussi d'avoir une «grammaire» du simple-lisp niveau 1.
@@ -328,6 +311,10 @@ Attention : il y a quelques invariants qui ne sont pas présents dans cette vér
    expr
    ((progn :body _*)
     (every #'squash-lisp-1-check body))
+   ((if :condition _ :si-vrai _ :si-faux _)
+    (and (squash-lisp-1-check condition)
+         (squash-lisp-1-check si-vrai)
+         (squash-lisp-1-check si-faux)))
    ((unwind-protect :body _ :cleanup _)
     (and (squash-lisp-1-check body)
          (squash-lisp-1-check cleanup)))
@@ -347,7 +334,7 @@ Attention : il y a quelques invariants qui ne sont pas présents dans cette vér
     t)
    (((? (member x '(let let* simple-flet simple-labels))) ((:name $$ :value _)*) :body _)
     (every #'squash-lisp-1-check (cons body value)))
-   ((lambda :params ($$*) :body _)
+   ((lambda :params @ :body _)
     (squash-lisp-1-check body))
    ((function :fun $$)
     t)
@@ -362,6 +349,19 @@ Attention : il y a quelques invariants qui ne sont pas présents dans cette vér
    (_
     (warn "squash-lisp-1-check: Assertion failed ! This should not be here : ~a" expr)
     nil)))
+
+(require 'test-unitaire "test-unitaire")
+(erase-tests squash-lisp-1)
+(deftest (squash-lisp-1 wrap unwind)
+    (eval (squash-lisp-1-wrap
+           '(let ((foo nil))
+             (unwind-catch 'foo
+              (progn (push 1 foo)
+                     (unwind 'foo)
+                     (push 2 foo))
+              (push 3 foo))
+             foo)))
+  '(3 1))
 
 #|
 Notes sur l'implémentation d'unwind.

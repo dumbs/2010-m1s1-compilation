@@ -290,7 +290,6 @@ Mini-meval est un meval très simple destiné à évaluer les macros et les autr
 Mini-meval sera appellé sur des morceaux spécifiques du fichier source. Il faut donc qu'il puisse maintenir son état entre les appels.
 |#
 (defun mini-meval (expr &optional (etat (list nil nil nil)))
-  (print etat)
   #|
   L'algorithme d'évaluation est très simple et suit le schéma donné dans CLTL 5.1.3 :
     1) Si l'expression est une forme spéciale, on la traite de manière particulière
@@ -514,8 +513,26 @@ Mini-meval sera appellé sur des morceaux spécifiques du fichier source. Il fau
 
 ;; La plupart des tests sont dans eqiv-tests.lisp
 
+(deftest (mini-meval lambda extérieur)
+    (funcall (mini-meval '(lambda (x) x) etat) 3)
+  3)
+
+(deftest (mini-meval lambda extérieur)
+    (funcall (mini-meval '(lambda (x) (+ x 3)) etat) 4)
+  7)
+
 (deftest (mini-meval defvar)
     (mini-meval '(progn (defvar x 42) x) etat)
+  42)
+
+;; Syntaxe supplémentaire non reconnue par le standard : (#'fun param*)
+(deftest (mini-meval call-function extérieur)
+    (mini-meval '(#'+ 2 3) etat)
+  5)
+
+;; Syntaxe supplémentaire non reconnue par le standard : (#'(lambda ...) param*)
+(deftest (mini-meval call-function lambda)
+    (mini-meval '(#'(lambda (x) (+ x 40)) 2) etat)
   42)
 
 (deftest (mini-meval defvar special)
@@ -547,8 +564,10 @@ Mini-meval sera appellé sur des morceaux spécifiques du fichier source. Il fau
   '((a b) ('a 'b) (a b)))
 
 (deftest (mini-meval setf setq)
-    (mini-meval '(progn (debug 'a) (print etat) (list (defvar x 42) x (setq x 123) x) etat))
+    (mini-meval '(list (defvar x 42) x (setq x 123) x) etat)
   '(x 42 123 123))
+
+;; TODO : tests setf
 
 (deftest (mini-meval function internal)
     (funcall (mini-meval '(progn (defun foo (x) (+ x 40)) #'foo) etat) 2)

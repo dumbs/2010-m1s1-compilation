@@ -9,9 +9,10 @@
    expr
    ((progn :body _*)
     `(progn ,@(mapcar (lambda (x) (squash-lisp-2 x env-var env-fun globals)) body)))
-   ;; simple-tagbody est équivalent à un progn, mais nécessaire pour les macrolet.
-   ((simple-tagbody :body _*)
-    `(simple-tagbody ,@(mapcar (lambda (x) (squash-lisp-2 x env-var env-fun globals)) body)))
+   ((if :condition _ :si-vrai _ :si-faux _)
+    `(if ,(squash-lisp-2 condition env-var env-fun globals)
+         ,(squash-lisp-2 si-vrai   env-var env-fun globals)
+         ,(squash-lisp-2 si-faux   env-var env-fun globals)))
    ((unwind-protect :body _ :cleanup _)
     `(unwind-protect ,(squash-lisp-2 body env-var env-fun globals)
        ,(squash-lisp-2 cleanup env-var env-fun globals)))
@@ -62,7 +63,7 @@
                                     name value)
                           ,(squash-lisp-2 body env-var new-env-fun globals))))) ;; env-var -> env-fun
    ;; TODO
-   ((lambda :params ($$*) :body _)
+   ((lambda :params @ :body _)
     ;; TODO : simplifier la lambda-list
     (squash-lisp-1-check body))
    ;; TODO
