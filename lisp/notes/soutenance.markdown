@@ -5,9 +5,9 @@ Tests unitaires
 * séparation des tests en modules / sous-modules, possibilité de lancer des tests de certains (sous-)modules seulement.
 * Statistiques : contabilisation du nombre de tests, d'erreurs, etc.
 
-`mini-meval`
-============
-C'est un méta-évaluateur «naïf» mais qui supporte pratiquement tout LISP sauf CLOS (Common Lisp Object System)
+mini-meval
+==========
+`mini-meval` est un méta-évaluateur «naïf» mais qui supporte pratiquement tout LISP sauf CLOS (Common Lisp Object System).
 
 Syntaxe supportée par mini-meval et le simplificateur
 =====================================================
@@ -20,14 +20,17 @@ Syntaxe supportée par mini-meval et le simplificateur
 * Dans la `lambda-list`: `&optional`, `&rest`, `&key`, `&allow-other-keys`, `&aux`, mais pas les `&body`
 * Plus `progn`, `if`, `#'`, `quote`, etc.
 
-`lisp2li`
-=========
-On a choisi de ne pas utiliser le li proposé par les encadrants, mais au contraire d'utiliser du LISP (très) simplifié qui est donc exécutable ce qui nous a permis de faire des tests unitaires pour voir si la transformation préservait le sens du programme.
+lisp2li
+=======
+* On a choisi de ne pas utiliser le langage intermédiaire proposé par les encadrants, mais au contraire d'utiliser du LISP (très) simplifié
+  qui est donc exécutable ce qui nous a permis de faire des tests unitaires pour voir si la transformation préservait le sens du programme.
+* Vu qu'on rajoute des sortes de special-form dans le langage intermédiaire qui ne font pas partie de LISP, pour que le langage
+  intermédiaire reste exécutable, on emballe le code généré dans un `macrolet` qui définit des macros transformant des special-operator en
+  code LISP équivalent.
+* Cette transformation est assurée par la fonction squash-lisp décrite ci-dessous.
 
-Cette transformation est assurée par la fonction squash-lisp décrite ci-dessous.
-
-`squash-lisp`
-=============
+squash-lisp
+===========
 * En 3 passes :
   * Passe 1 :
     * macro-expansion (on utilise `mini-meval`) et `eval-when`.
@@ -90,10 +93,14 @@ Ramasse-miettes
 ===============
 * gestion du tas
 * On a un gc très simpliste qui copie les données d'une zone de la mémoire vers une autre et vice versa à chaque fois qu'elle est pleine.
-* Ce type de gc s'appelle un [two-finger garbage collector](http://en.wikipedia.org/wiki/Cheney's_algorithm "Article wikipédia").
+* Ce type de gc s'appelle un [two-finger garbage collector][gc-wp].
 * La raison de ce choix de modèle de gc est que les autres types de gc nécessitent une occupation variable de la mémoire pour l'exécution du
   gc (nécessaire pour le parcours en largeur/profondeur) qui peut être aussi grosse que la mémoire occupée (𝑶(𝑛)) dans le pire des cas.
 
 Implémentation de fonctions LISP
 ================================
 * On a notre propre fonction `read` et notre propre fonction `format` pour être autonomes.
+
+Références
+==========
+[gc-wp]: http://en.wikipedia.org/wiki/Cheney's_algorithm "Article wikipédia décrivant le fonctionnement de notre ramasse-miettes."
