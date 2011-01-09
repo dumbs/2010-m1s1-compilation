@@ -290,6 +290,7 @@ Mini-meval est un meval très simple destiné à évaluer les macros et les autr
 Mini-meval sera appellé sur des morceaux spécifiques du fichier source. Il faut donc qu'il puisse maintenir son état entre les appels.
 |#
 (defun mini-meval (expr &optional (etat (list nil nil nil)))
+  (print etat)
   #|
   L'algorithme d'évaluation est très simple et suit le schéma donné dans CLTL 5.1.3 :
     1) Si l'expression est une forme spéciale, on la traite de manière particulière
@@ -511,66 +512,7 @@ Mini-meval sera appellé sur des morceaux spécifiques du fichier source. Il fau
 
 (deftestvar mini-meval etat (make-etat list + - cons car cdr < > <= >= =))
 
-(deftest (mini-meval constante)
-    (mini-meval 42 etat)
-  42)
-
-(deftest (mini-meval appel-fonction)
-    (mini-meval '(+ 2 3) etat)
-  5)
-
-(deftest (mini-meval appel-fonction)
-    (mini-meval '(+ 2 (+ 3 4)) etat)
-  9)
-
-(deftest (mini-meval variable)
-    (mini-meval 'x (push-local etat 'x 'variable 42))
-  42)
-
-(deftest (mini-meval appel-fonction-et-variable)
-    (mini-meval '(+ x x 3) (push-local etat 'x 'variable 42))
-  87)
-
-(deftest (mini-meval appel-fonction-et-variable)
-    (mini-meval '(+ x (+ 3 x)) (push-local etat 'x 'variable 42))
-  87)
-
-(deftest (mini-meval lambda extérieur)
-    (funcall (mini-meval '(lambda (x) x) etat) 3)
-  3)
-
-(deftest (mini-meval lambda extérieur)
-    (funcall (mini-meval '(lambda (x) (+ x 3)) etat) 4)
-  7)
-
-(deftest (mini-meval lambda immédiat)
-    (mini-meval '((lambda (x) (+ x 3)) 4) etat)
-  7)
-
-(deftest (mini-meval let)
-    (mini-meval '(let ((x 3) (y 4)) (+ x y)) etat)
-  7)
-
-(deftest (mini-meval let)
-    (mini-meval '(let ((x 3) (y 4) (z 5)) (let ((z (+ x y)) (w z)) (list x y z w))) etat)
-  '(3 4 7 5))
-
-(deftest (mini-meval let*)
-    (mini-meval '(let ((x 3) (y 4) (z 5)) (let* ((z (+ x y)) (w z)) (list x y z w))) etat)
-  '(3 4 7 7))
-
-;; TODO
-;; (deftest (mini-meval let-nil)
-;;     (mini-meval '(let (a (x 3) y) (list a x y)) etat)
-;;   '(nil 3 nil))
-
-;; (deftest (mini-meval let-nil)
-;;     (mini-meval '(let* ((x 4) y (z 5)) (list a x y)) etat)
-;;   '(4 nil 5))
-
-(deftest (mini-meval progn)
-    (mini-meval '(progn 1 2 3 4) etat)
-  4)
+;; La plupart des tests sont dans eqiv-tests.lisp
 
 (deftest (mini-meval defvar)
     (mini-meval '(progn (defvar x 42) x) etat)
@@ -589,10 +531,6 @@ Mini-meval sera appellé sur des morceaux spécifiques du fichier source. Il fau
     (mini-meval '(progn (defun double (x) (+ x x)) (double 3)) etat)
   6)
 
-(deftest (mini-meval quote)
-    (mini-meval ''x etat)
-  'x)
-
 (deftest (mini-meval defmacro)
     (mini-meval '(progn (defmacro qlist (x y) (list 'list (list 'quote x) (list 'quote y))) (qlist a b)) etat)
   '(a b))
@@ -609,28 +547,8 @@ Mini-meval sera appellé sur des morceaux spécifiques du fichier source. Il fau
   '((a b) ('a 'b) (a b)))
 
 (deftest (mini-meval setf setq)
-    (mini-meval '(list (defvar x 42) x (setq x 123) x) etat)
+    (mini-meval '(progn (debug 'a) (print etat) (list (defvar x 42) x (setq x 123) x) etat))
   '(x 42 123 123))
-
-(deftest (mini-meval funcall)
-    (mini-meval '(funcall #'+ 1 2 3) etat)
-  '6)
-
-(deftest (mini-meval apply)
-    (mini-meval '(apply #'+ 1 2 (list (+ 1 2) 4)) etat)
-  '10)
-
-(deftest (mini-meval function external)
-    (mini-meval '#'+ etat)
-  #'+)
-
-(deftest (mini-meval function external)
-    (mini-meval '(funcall #'+ 1 2 3) etat)
-  '6)
-
-(deftest (mini-meval call-function external)
-    (mini-meval '(#'+ 2 3) etat)
-  5)
 
 (deftest (mini-meval function internal)
     (funcall (mini-meval '(progn (defun foo (x) (+ x 40)) #'foo) etat) 2)
@@ -647,14 +565,6 @@ Mini-meval sera appellé sur des morceaux spécifiques du fichier source. Il fau
 (deftest (mini-meval call-function internal)
     (mini-meval '(progn (defun foo (x) (+ x 40)) (#'foo 2)) etat)
   42)
-
-(deftest (mini-meval call-function lambda)
-    (mini-meval '(#'(lambda (x) (+ x 40)) 2) etat)
-  42)
-
-(deftest (mini-meval lambda optional)
-    (mini-meval '((lambda (x &optional (y 2)) (list x y)) 1) etat)
-  '(1 2))
 
 (deftest (mini-meval lambda closure single-instance)
     (mini-meval '(progn
@@ -702,10 +612,6 @@ Mini-meval sera appellé sur des morceaux spécifiques du fichier source. Il fau
   '(foo 4 6))
 
 (deftest (mini-meval labels)
-    (mini-meval '(< 2 3) etat)
-  t)
- 
-(deftest (mini-meval labels)
     (mini-meval '(list
                   (defun fibo (n) (if (< n 2) 1 (+ (fibo (- n 1)) (fibo (- n 2))))) ;; fibo 0 -> 1; 1 -> 1; 2 -> 2 ...
                   (fibo 5)
@@ -727,25 +633,5 @@ Mini-meval sera appellé sur des morceaux spécifiques du fichier source. Il fau
 
 (deftest-error (mini-meval error)
     (mini-meval '(error "Some user error message.")))
-
-(deftest (mini-meval tagbody)
-  (mini-meval '(let ((x 0)) (tagbody foo (setq x 1) (go baz) bar (setq x 2) baz) x))
-  1)
-
-(deftest (mini-meval tagbody)
-  (mini-meval '(let ((x 0)) (tagbody foo (setq x 1) (go 42) bar (setq x 2) 42) x))
-  1)
-
-(deftest (mini-meval tagbody)
-  (mini-meval '(tagbody foo (list 1) 42 (list 2) baz (list 3)) etat)
-  nil)
-
-(deftest (mini-meval block)
-  (mini-meval '(block foo 1 (return-from foo 4) 2))
-  4)
-
-(deftest (mini-meval block)
-  (mini-meval '(block foo 1 2))
-  2)
 
 (provide 'mini-meval)
