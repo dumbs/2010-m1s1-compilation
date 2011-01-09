@@ -93,14 +93,10 @@ Ramasse-miettes
 ===============
 * gestion du tas
 * On a un gc très simpliste qui copie les données d'une zone de la mémoire vers une autre et vice versa à chaque fois qu'elle est pleine.
-* Ce type de gc s'appelle un [two-finger garbage collector][gc-wp].
+* Ce type de gc s'appelle un [two-finger garbage collector](http://en.wikipedia.org/wiki/Cheney's_algorithm "Article wikipédia décrivant le fonctionnement de notre ramasse-miettes.").
 * La raison de ce choix de modèle de gc est que les autres types de gc nécessitent une occupation variable de la mémoire pour l'exécution du
   gc (nécessaire pour le parcours en largeur/profondeur) qui peut être aussi grosse que la mémoire occupée (𝑶(𝑛)) dans le pire des cas.
 
 Implémentation de fonctions LISP
 ================================
 * On a notre propre fonction `read` et notre propre fonction `format` pour être autonomes.
-
-Références
-==========
-[gc-wp]: http://en.wikipedia.org/wiki/Cheney's_algorithm "Article wikipédia décrivant le fonctionnement de notre ramasse-miettes."
