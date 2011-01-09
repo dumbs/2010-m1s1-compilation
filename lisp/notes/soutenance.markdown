@@ -34,7 +34,7 @@ Cette transformation est assurée par la fonction squash-lisp décrite ci-dessou
     * simplification globale de la syntaxe :
       * 
             (let (a (b 2) c) (list a b c))
-            -> (let ((a nil) (b 2) (c nil)) (list a b c))
+            → (let ((a nil) (b 2) (c nil)) (list a b c))
       * unification de la syntaxe des let, let*, flet, labels.
       * tous les appels de fonction sont transformés en funcall.
     * ré-écriture des `tagbody`/`go`, `throw`/`catch`, `block`/`return`/`return-from` en termes de `unwind`/`unwind-protect`,
@@ -45,15 +45,15 @@ Cette transformation est assurée par la fonction squash-lisp décrite ci-dessou
   * Passe 2 :
     * noms uniques pour les variables locales. Il n'y a donc plus besoin de connaître l'imbrication des environnements pour savoir à quelle
       définition fait référence l'utilisation d'une variable.
-    * toutes les déclarations de variables locales (`let`,`let*`,`flet`,`labels`,`lambda`) sont transformées en `simple-let`
+    * toutes les déclarations de variables locales (`let`, `let*`, `flet`, `labels`, `lambda`) sont transformées en `simple-let`
     * le `simple-let` ne fait que déclarer, il n'afecte pas de valeurs :
           (let ((a nil) (b 2)) (list a b))
-          -> (simple-let (a b) (setq a nil) (setq b 2) (list a b))
+          → (simple-let (a b) (setq a nil) (setq b 2) (list a b))
     * simplification de la lambda-list (élimination de `&optional`, `&rest`, `&key`, `&allow-other-keys`, `&aux`)
     * suppression des paramètres de la `lambda` :
-          ```lisp
-          (lambda (x y) (+ x y))
-          -> (simple-lambda (simple-let (x y) (setq x (get-param 0)) (setq y (get-param 1)) (+ x y)))
+      ```lisp
+      (lambda (x y) (+ x y))
+      → (simple-lambda (simple-let (x y) (setq x (get-param 0)) (setq y (get-param 1)) (+ x y)))
 ```
   * Passe 3
     * On lorsqu'une variable à l'intérieur d'une `lambda` référence une déclaration à l'extérieur de la `lambda`, on la marque comme étant *capturée*.
