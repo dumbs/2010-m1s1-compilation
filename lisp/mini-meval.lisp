@@ -125,6 +125,7 @@
 ;; - transformation de la récursion terminale.
 
 ;; - vérifier qu'on a pas transformé certaines fonctions en formes spéciales (il faut qu'on puisse toujours les récupérer avec #').
+;; - sortir le defun du mini-meval ?
 
 ;; cell (un seul pointeur, transparent (y compris pour le type),
 ;; avec trois fonctions spéciales pour le get / set / tester le type),
@@ -147,13 +148,13 @@
                    (optional optional (:var . $$) `(,var nil nil))
                    (optional optional (:var $$ :default _? :svar $$?) `(,var ,(car default) ,(car svar)))
                    (rest     reject   $&)
-                   (rest     rest2    (:var . $$) `(,var))
+                   (rest     rest2    (:var . $$) var)
                    (rest2    accept)
                    (rest2    key      &key)
                    (rest2    aux      &aux)
                    (rest2    reject   $&)
                    (key      accept)
-                   (key      other    &allow-other-keys t)
+                   (key      other    &allow-other-keys)
                    (key      aux      &aux)
                    (key      reject   $&)
                    (key      key      (:keyword . $k) `(,(keyword-to-symbol keyword) ,(keyword-to-symbol keyword) nil nil)) ;; Not in the standard !
@@ -161,6 +162,7 @@
                    (key      key      (:keyword $$ :default _? :svar $$?) `(,(keyword-to-symbol keyword) ,(keyword-to-symbol keyword) ,(car default) ,(car svar))) ;; Not in the standard !
                    (key      key      (:var $$ :default _? :svar $$?) `(,var ,var ,(car default) ,(car svar)))
                    (key      key      ((:keyword $k :var $$) :default _? :svar $$?) `(,(keyword-to-symbol keyword) ,var ,(car default) ,(car svar)))
+                   (other    collect  t)
                    (other    accept)
                    (other    aux      &aux)
                    (other    reject   $&)
@@ -171,6 +173,7 @@
                    (reject (error "slice-up-lambda-list : ~w ne peut être ici." last-element))))
 
 ;; Exemples :
+;; TODO : en faire des tests unitaires.
 ;; (slice-up-lambda-list '(a b &optional u &rest c &key ((:foo bar)) :quux (:baz 'glop) &aux (x 1) (y (+ x 2))))
 ;; (slice-up-lambda-list '(a b &rest))
 ;; (slice-up-lambda-list '(a b))

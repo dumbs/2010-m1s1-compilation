@@ -564,37 +564,54 @@
 #|
 Syntaxe du match-automaton :
 (match-automaton expression initial-state
-                 (stateX stateY [pattern] [code])
-                 (stateX stateY [pattern] [code])
+                 (stateX stateY [pattern] [code [code ...]])
+                 (stateX stateY [pattern] [code [code ...]])
                  ...)
-Si pattern n'est pas fourni, alors stateY est soit accept ou reject, pour indiquer qu'on accepte ou rejette l'expression si on arrive sur cet état à la fin.
-Si pattern est fourni, cela signifie «Si l'élément courant de l'expression matche avec ce pattern, passer à l'élément suivant et aller dans l'état stateY.».
-Lorsque l'expression est acceptée, pattern-match renvoie une liste associative ((state1 élément-1 ... élément-n) (state2 e1..eN) ...)
-Les éléments à droite de chaque nom d'état sont obtenus de la manière suivante :
-  Si code est fourni, il est exécuté, et sa valeur de retour est ajoutée à la fin de la liste correspondant à stateX (l'état de départ).
-  Si code n'est pas fourni, rien n'est ajouté à cette liste.
-Lorsqu'on est sur un certain état, chaque transition partant de cet état est testée dans l'ordre d'écriture, et la première qui matche est choisie.
+- certains noms d'état pour stateX et stateY sont réservés : initial accept reject do collect
+
+(stateX stateY)
+- Si pattern n'est pas fourni, alors stateY est en général accept ou reject, pour indiquer qu'on accepte ou rejette l'expression si on arrive sur cet état à la fin.
+- stateY peut aussi être un autre état, auquel cas, si tous les pattern de stateX échouent, ou si on se retrouve à la fin (de la liste qu'on analyse),
+  on jump vers stateY au lieu d'aller à reject (note : il est possible de faire une boucle infinie ainsi).
+
+(stateX stateY pattern)
+- Si pattern est fourni, cela signifie «Si l'élément courant de l'expression matche avec ce pattern, passer à l'élément suivant et aller dans l'état stateY.».
+- Lorsque l'expression est acceptée, pattern-match renvoie une liste associative ((state1 élément-1 ... élément-n) (state2 e1..eN) ...)
+- Les éléments à droite de chaque nom d'état sont obtenus de la manière suivante :
+  - Si code est fourni: (stateX stateY pattern code*)
+    il est exécuté, et sa valeur de retour est ajoutée à la fin de la liste correspondant à stateX (l'état de départ).
+  - Si code n'est pas fourni : (stateX stateY pattern)
+    rien n'est ajouté à cette liste.
+- Lorsqu'on est sur un certain état, chaque transition partant de cet état est testée dans l'ordre d'écriture, et la première qui matche est choisie.
 
 De plus, il est possible de spécifier des clauses spéciales, au lieu des (stateX stateY [pattern] [code]) :
- - (initial code ...), qui exécute le code avant de démarrer (pas très utile...)
- - (accept code ...), qui exécute le code dans le cas où l'expression est acceptée. La valeur renvoyée par ce code sera la valeur de retour de match-automaton.
-                      Dans cette clause, on peut accéder à la valeur qui aurait dû être renvoyée via la variable return-value.
- - (reject code ...), qui exécute le code dans le cas où l'expression est rejetée. La valeur renvoyée par ce code sera la valeur de retour de match-automaton.
-                      Dans cette clause, le dernier élément considéré est stocké dans last-element.
-                      Cet élément est celui qui a causé le reject, ou nil si on est au début de la liste, ou nil si on est à la fin de la liste sans accept.
-                      ;;De même, le dernier état courant est dans last-state.
+ - (initial code ...)         qui exécute le code avant de démarrer (pas très utile…)
+
+ - (accept code ...)          qui exécute le code dans le cas où l'expression est acceptée. La valeur renvoyée par ce code sera la valeur de retour de match-automaton.
+                              Dans cette clause, on peut accéder à la valeur qui aurait dû être renvoyée via la variable return-value.
+
+ - (reject code ...)          qui exécute le code dans le cas où l'expression est rejetée. La valeur renvoyée par ce code sera la valeur de retour de match-automaton.
+                              Dans cette clause, le dernier élément considéré est stocké dans last-element.
+                              Cet élément est celui qui a causé le reject, ou nil si on est au début de la liste, ou nil si on est à la fin de la liste sans accept.
+                              De même, le dernier état courant est dans last-state.
+
+ - (stateX do code ...)       qui exécute code à chaque fois qu'on entre sur stateX.
+                              On peut accéder à last-element et last-state.
+
+ - (stateX collect code ...)  qui exécute code à chaque fois qu'on entre sur stateX et ajoute sa valeur de retour à la fin de la liste correspondant à stateX.
+                              On peut accéder à last-element et last-state.
 
 Il peut y avoir plusieurs initial, accept et reject, auquel cas tous sont exécutés dans l'ordre d'écriture, et sont concaténés dans un progn,
 donc seule la valeur de la dernière expression de la dernière clause est renvoyée.
 |#
 
-;; ATTENTION, par excès de flemme, match-automaton ne supporte pas la syntax
-;; (macro :var atom expr code)
+;; ATTENTION, par excès de flemme, match-automaton ne supporte pas la syntaxe
+;;   de découplage du nom de capture et de l'élément : (macro :var atom expr code)
 ;; ATTENTION, j'ai renoncé à rendre ce code lisible.
-(defun match--grouped-transition-to-progns (grouped-transition)
+(defun match--transitions-to-progns (transitions)
   ;; On remet to, pattern et code bout à bout (c'est tout du code)
   (mapcar (lambda (x) `(progn ,(car x) ,@(cadr x) ,@(caddr x)))
-          (cdr grouped-transition)))
+          transitions))
 
 (defmacro match-automaton (expr initial-state &rest rules)
   (match ((:from $$ :to _ :pattern _? :code _*) *) rules
@@ -611,14 +628,14 @@ donc seule la valeur de la dernière expression de la dernière clause est renvo
               (block ,block-sym
                 (tagbody
                  initial
-                   (progn ,(match--grouped-transition-to-progns (assoc 'initial grouped-transitions)))
+                   (progn ,(match--transitions-to-progns (cdr (assoc 'initial grouped-transitions))))
                    (go ,initial-state)
                  accept
                    (let ((return-value (list ,@(mapcar (lambda (s) `(cons ',(car s) (reverse ,(cdr s)))) storage))))
                      return-value
                      (return-from ,block-sym
                        (progn return-value
-                              ,@(match--grouped-transition-to-progns (assoc 'accept grouped-transitions)))))
+                              ,@(match--transitions-to-progns (cdr (assoc 'accept grouped-transitions))))))
                  reject
                    (return-from ,block-sym
                      (let ((last-element ,last-element-sym)
@@ -626,7 +643,7 @@ donc seule la valeur de la dernière expression de la dernière clause est renvo
                        last-element
                        last-state
                        (progn nil
-                              ,@(match--grouped-transition-to-progns (assoc 'reject grouped-transitions)))))
+                              ,@(match--transitions-to-progns (cdr (assoc 'reject grouped-transitions))))))
                    ;; On va générer ceci :
                    ;; state1
                    ;;   (cond-match ... (go state2) ... (go state1) ...)
@@ -636,19 +653,34 @@ donc seule la valeur de la dernière expression de la dernière clause est renvo
                    ;;   (cond-match ... (go accept) ... (go state1) ...)))
                    ,@(loop
                         for (from . transitions) in grouped-transitions
+                        and temp-do = nil
+                        and temp-collect = nil
+                        ;; syntaxe (stateX code) => exécute le code à chaque fois qu'on rentre dans stateX.
+                        for jump = (member nil (reverse transitions) :key #'second)
                         unless (member from '(initial accept reject))
                           collect from
                           and collect `(setq ,last-state-sym ',from)
                           and collect `(setq ,last-element-sym (car ,expr-sym))
-                          and if (member nil transitions :key #'second)
-                            collect `(when (endp ,expr-sym) (go accept)) ;; TODO : aller à l'état désigné par la dernière transition "finale". + syntaxe (stateX code) => exécute le code à chaque fois qu'on rentre dans stateX.
+                          and if jump
+                            ;; va à l'état désigné par la dernière transition "finale".
+                            collect `(when (endp ,expr-sym) (go ,(caar jump)))
                           else
                             collect `(when (endp ,expr-sym) (go reject))
+                          end
+                          and do (setq temp-do      (remove nil (mapcar (lambda (x) (when (eq 'do      (car x)) `(progn ,@(cadr x) ,@(caddr x)))) transitions)))
+                          and do (setq temp-collect (remove nil (mapcar (lambda (x) (when (eq 'collect (car x)) `(progn ,@(cadr x) ,@(caddr x)))) transitions)))
+                          and when (or temp-do temp-collect)
+                            collect `(let ((last-element ,last-element-sym)
+                                           (last-state ,last-state-sym))
+                                       last-element
+                                       last-state
+                                       ,@(if temp-do `((progn ,@temp-do)) nil)
+                                       ,@(if temp-collect `((push (progn ,@temp-collect) ,(cdr (assoc from storage)))) nil))
                           end
                           and collect `(cond-match (car ,expr-sym)
                                                    ,@(loop
                                                         for (to pattern code) in transitions
-                                                        when pattern
+                                                        unless (or (not pattern) (eq to 'do) (eq to 'collect))
                                                           if code
                                                             collect `(,@pattern
                                                                     (push (progn ,@code) ,(cdr (assoc from storage)))
@@ -658,7 +690,7 @@ donc seule la valeur de la dernière expression de la dernière clause est renvo
                                                             collect `(,@pattern
                                                                       (setq ,expr-sym (cdr ,expr-sym))
                                                                       (go ,to)))
-                                                   (_ (go reject))))))))))
+                                                   (_ ,(if jump `(go ,(caar jump)) '(go reject)))))))))))
 
 (require 'test-unitaire "test-unitaire")
 (erase-tests match)
