@@ -45,6 +45,14 @@
     '((lambda (x) (+ x 3)) 4)
   7)
 
+(deftest-equiv (lambda sans-params)
+    '((lambda () 42))
+  42)
+
+(deftest-equiv (lambda sans-body)
+    '((lambda ()))
+  nil)
+
 (deftest-equiv (let)
     '(let ((x 3) (y 4)) (+ x y))
   7)

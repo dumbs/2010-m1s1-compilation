@@ -131,6 +131,7 @@
 ;; avec trois fonctions spéciales pour le get / set / tester le type),
 ;; sera utilisé pour les closures et les variables spéciales.
 
+;; TODO : bug : pourquoi les keyword-to-symbol ??? on devrait garder le keyword tel quel.
 (defun slice-up-lambda-list (lambda-list)
   (match-automaton lambda-list fixed
                    (fixed    accept)
