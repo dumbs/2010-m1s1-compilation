@@ -49,8 +49,8 @@
    rend tous les noms locaux de fonction (flet/labels) et de
    variables (let/let*/lambda) uniques, mais pas les globaux.
 
-   `super-let' est lui-même transformé dans la foulée en simple-let qui ne fait
-   que déclarer les noms de variables, mais n'affecte pas de valeur
+   `super-let' est lui-même transformé dans la foulée en let simplifié qui ne
+   fait que déclarer les noms de variables, mais n'affecte pas de valeur
    lui-même (les affectations sont faites avec des setq)
 
    `at-toplevel' permet de déterminer si une expression est considérée comme
@@ -220,20 +220,21 @@
                     ,@(loop
                          for (type . clause) in expr
                          when (eq type 'set)
-                         collect `(setq ,(cdr (assoc (car clause) name)) (transform (cadr clause)))
-                         when (eq type 'use-var)
+                         collect `(setq ,(cdr (assoc (car clause) name)) ,(transform (cadr clause)))
+                         else when (eq type 'use-var)
                          do (push (assoc (car clause) name) env-var)
-                         when (eq type 'use-fun)
+                         else when (eq type 'use-fun)
                          do (push (assoc (car clause) name) env-fun)
-                         when (eq type 'if)
-                         do `(if ,(transform (car clause))
-                                 (progn ,(mapcar #'transform-super-let (cadr clause)))
-                                 (progn ,(mapcar #'transform-super-let (caddr clause))))
-                         when (eq type 'progn)
-                         collect `(progn ,(mapcar (lambda (x) (transform x)) clause))))))
+                         else when (eq type 'if)
+                         collect `(if ,(transform (car clause))
+                                      ,(transform-super-let (cadr clause))
+                                      ,(transform-super-let (caddr clause)))
+                         else when (eq type 'progn)
+                         collect `(progn ,@(mapcar (lambda (x) (transform x)) clause))
+                         else do (error "transform-super-let : internal error : ~a not expected here" type)))))
         ;; Note : ce <let> ne sera pas re-transformé (sinon boucle infinie).
         `(let ,(mapcar #'cdr name)
-           ,(transform-super-let expr))))
+           ,(transform-super-let stuff))))
      
      ((let ((:name $$ :value _)*) :body _*)
       (transform
@@ -252,14 +253,14 @@
                         collect `(use-var ,n))
                    (progn ,@body))))
      
-     ((simple-flet ((:name $$ :params @ :fbody _*)*) :body _*)
+     ((flet ((:name $$ :params @ :fbody _*)*) :body _*)
       (transform
        `(super-let ,name
                    ,@(mapcar (lambda (n params fbody) `(set ,n (lambda ,params (progn ,@fbody)))) name params fbody)
                    ,@(mapcar (lambda (n) `(use-fun ,n)) name)
                    (progn ,@body))))
      
-     ((simple-labels ((:name $$ :params @ :fbody _*)*) :body _*)
+     ((labels ((:name $$ :params @ :fbody _*)*) :body _*)
       (transform
        `(super-let ,name
                    ,@(mapcar (lambda (n) `(use-fun ,n)) name)
@@ -283,6 +284,7 @@
              (key          (cdr (assoc 'key      sliced-lambda-list)))
              (other        (cdr (assoc 'other    sliced-lambda-list)))
              (aux          (cdr (assoc 'aux      sliced-lambda-list))))
+        (push (cons whole-sym whole-sym) env-var)
         `(lambda (&rest ,whole-sym)
            ,(transform
              `(super-let (,@fixed
@@ -296,21 +298,21 @@
                          ,@(loop
                               for param in fixed
                               collect `(set ,param (car ,whole-sym))
-                              collect `(use ,param)
+                              collect `(use-var ,param)
                               collect `(progn (setq ,whole-sym (cdr ,whole-sym))))
                          ,@(loop
                               for (param default predicate) in optional
                               collect `(if ,whole-sym
-                                           ((set ,param (car whole-sym))
+                                           ((set ,param (car ,whole-sym))
                                             (progn (setq ,whole-sym (cdr ,whole-sym)))
-                                            (use ,param)
-                                            ,@(if predicate `((set ,predicate t)   (use predicate)) nil))
+                                            (use-var ,param)
+                                            ,@(if predicate `((set ,predicate t)   (use-var ,predicate)) nil))
                                            ((set ,param ,default)
-                                            (use ,param)
-                                            ,@(if predicate `((set ,predicate nil) (use predicate)) nil))))
+                                            (use-var ,param)
+                                            ,@(if predicate `((set ,predicate nil) (use-var ,predicate)) nil))))
                          ,@(if rest
                                `((set ,(car rest) ,whole-sym)
-                                 (use ,(car rest)))
+                                 (use-var ,(car rest)))
                                nil)
                          ,@(if key
                                `(progn (if (evenp (length ,whole-sym)) nil (error "Odd number of arguments, but function has &key.")))
@@ -318,7 +320,7 @@
                          ,@(if key
                                (loop
                                   for (keyword param default predicate) in key
-                                  ;; TODO : quand on a trouvé, pouvoir faire set et use (support de simple-tagbody & jump-label super-let)
+                                  ;; TODO : quand on a trouvé, pouvoir faire set et use-var (support de simple-tagbody & jump-label super-let)
                                   collect (let ((search-key (make-symbol "SEARCH-KEY")))
                                             `((progn (simple-tagbody
                                                       (jump-label ,search-key)
@@ -334,25 +336,29 @@
                                                           nil)))
                                               (if ,temp-key-sym
                                                   ((set ,param (car ,temp-key-sym))
-                                                   (use ,param)
-                                                   ,@(if predicate `((set predicate t) (use predicate)) nil))
+                                                   (use-var ,param)
+                                                   ,@(if predicate `((set predicate t) (use-var ,predicate)) nil))
                                                   ((set ,param ,default)
-                                                   (use ,param)
-                                                   ,@(if predicate `((set predicate nil) (use predicate)) nil))))))
+                                                   (use-var ,param)
+                                                   ,@(if predicate `((set predicate nil) (use-var ,predicate)) nil))))))
                                nil)
                          ;; TODO : not implemented yet : vérifier s'il y a des key non autorisées.
                          ,@(loop
                               for (param val) in aux
                               collect `(set ,param ,val)
-                              collect `(use ,param))
+                              collect `(use-var ,param))
                          (progn ,@body))))))
      
      ((function :fun (lambda . _))
       (transform fun))
      
      ((function :fun $$)
-      `(get-var ,(assoc-or fun env-fun (assoc-or-push fun (derived-symbol (string fun)) (cdr globals)))))
-
+      (if-assoc fun env-fun
+                `(get-var ,(cdr assoc))
+                (progn
+                  (pushnew fun (cdr globals))
+                  `(fdefinition ',fun))))
+     
      ((funcall :fun _ :params _*)
       `(funcall ,(transform fun) ,@(mapcar (lambda (x) (transform x)) params)))
 
@@ -360,23 +366,39 @@
      ;; => TODO : définir la fonction funcall : (funcall #'funcall #'cons 1 2)
      ;; => TODO : définir la fonction apply   : (funcall #'apply #'cons '(1 2))
      
+     ((? or numberp stringp)
+      `(quote ,expr))
+     
      ((setq :name $$ :value _)
-      `(setq ,(assoc-or name env-var (assoc-or-push name (derived-symbol name) (car globals)))
-             ,(transform value)))
+      (if-assoc name env-var
+                `(setq ,(cdr assoc) ,(transform value))
+                (progn
+                  (pushnew name (car globals))
+                  `(set ',name ,(transform value)))))
      
      ((quote _)
       expr)
      
-     ((? or numberp stringp)
-      `(quote ,expr))
-     
+     ((fdefinition (quote $$))
+      expr)
+
+     ((symbol-value (quote $$))
+      expr)
+
+     ((set (quote $$))
+      expr)
+
      ;; TODO : nil et t devraient être des defconst
      ;; Doit être avant les symboles
      (nil
       ''nil)
      
      ($$
-      (print `(get-var ,(assoc-or expr env-var (assoc-or-push expr (derived-symbol expr) (car globals))))))
+      (if-assoc expr env-var
+                `(get-var ,(cdr assoc))
+                (progn
+                  (pushnew expr (car globals))
+                  `(symbol-value ',expr))))
      
      ;; Appels de fonction
      ;; Doivent être après tout le monde.
@@ -393,7 +415,7 @@
       (transform `(funcall (function ,name) ,@params)))
      
      (_
-      (error "squash-lisp-1: Not implemented yet : ~a" expr)))))
+      (error "squash-lisp-1: Not implemented yet : ~w" expr)))))
 
 (defun squash-lisp-1-wrap (expr)
   `(macrolet ((unwind-catch (object body catch-code)
@@ -419,8 +441,6 @@
               ;;  name)
               (jump (dest)
                 `(go ,dest))
-              (simple-let (spec body)
-                `(let spec body))
               (get-var (x)
                 x))
      ,expr))
@@ -459,8 +479,6 @@ Attention : il y a quelques invariants qui ne sont pas présents dans cette vér
     (squash-lisp-1-check body))
    ((lambda (&rest $$) :body _)
     (squash-lisp-1-check body))
-   ((function :fun $$)
-    t)
    ((funcall :fun _ :params _*)
     (every #'squash-lisp-1-check (cons fun params)))
    ((quote _)
@@ -469,8 +487,14 @@ Attention : il y a quelques invariants qui ne sont pas présents dans cette vér
     t)
    ((setq :name $$ :value _)
     (squash-lisp-1-check value))
+   ((fdefinition (quote $$))
+    t)
+   ((symbol-value (quote $$))
+    t)
+   ((set (quote $$) :value _)
+    (squash-lisp-1-check value))
    (_
-    (warn "squash-lisp-1-check: Assertion failed ! This should not be here : ~a" expr)
+    (warn "squash-lisp-1-check: Assertion failed ! This should not be here : ~w" expr)
     nil)))
 
 (require 'test-unitaire "test-unitaire")

@@ -1,0 +1,12 @@
+Variables :
+
+boundp/makeunbound
+symbol-value/set
+
+Functions
+fboundp/?
+symbol-function (ou mieux : fdefinition)/(setf fdefinition)
+
+Macros (?)
+macro-function teste
+macro-function/(setf macro-function)

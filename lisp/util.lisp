@@ -221,11 +221,11 @@
   `(with-symbol (,var (derived-symbol ,symbol))
      ,@body))
     
-(defmacro assoc-or (key alist &rest body)
+(defmacro if-assoc (key alist body-if body-else)
   `(let ((assoc (assoc ,key ,alist)))
      (if assoc
-         (cdr assoc)
-         (progn ,@body))))
+         ,body-if
+         ,body-else)))
 
 (defmacro assoc-or-push (key datum alist-place)
   "Fait un assoc de key dans alist-place, et si l'association échoue,

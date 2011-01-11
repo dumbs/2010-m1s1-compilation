@@ -62,7 +62,7 @@
   '(3 4 7 5))
 
 (deftest-equiv (let*)
-    '(let ((x 3) (y 4) (z 5)) (let* ((z (+ x y)) (w z)) (list x y z w)))
+    '(let ((x 3) (y 4) (z 5)) z (let* ((z (+ x y)) (w z)) (list x y z w)))
   '(3 4 7 7))
 
 ;; TODO
