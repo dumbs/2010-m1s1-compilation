@@ -12,7 +12,6 @@
 (load "mini-meval")
 (load "squash-lisp")
 (load "squash-lisp-1")
-(load "squash-lisp-2")
 (load "equiv-tests")
 
 (provide 'main)

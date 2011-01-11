@@ -61,7 +61,7 @@ squash-lisp
           (lambda (x y) (+ x y))
           → (simple-lambda (simple-let (x y) (setq x (get-param 0)) (setq y (get-param 1)) (+ x y)))
   * Passe 3
-    * On lorsqu'une variable à l'intérieur d'une `lambda` référence une déclaration à l'extérieur de la `lambda`, on la marque comme étant *capturée*.
+    * Lorsqu'une variable à l'intérieur d'une `lambda` référence une déclaration à l'extérieur de la `lambda`, on la marque comme étant *capturée*.
     * On fusionne tous les `let` d'une `lambda` en les remontant dans un `let` unique à la racine de la `lamdba`.
     * On sort toutes les lambdas (fonctions anonymes), on les nomme avec un symbole unique, et on les met au top-level.
 

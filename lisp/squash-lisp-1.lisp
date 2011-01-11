@@ -286,6 +286,7 @@
              (aux          (cdr (assoc 'aux      sliced-lambda-list))))
         (push (cons whole-sym whole-sym) env-var)
         `(lambda (&rest ,whole-sym)
+           ,(transform whole-sym) ;; pour pas qu'il soit unused si aucun paramètre.
            ,(transform
              `(super-let (,@fixed
                           ,@(mapcar #'car optional)
@@ -477,7 +478,7 @@ Attention : il y a quelques invariants qui ne sont pas présents dans cette vér
     t)
    ((let ($$*) :body _)
     (squash-lisp-1-check body))
-   ((lambda (&rest $$) :body _)
+   ((lambda (&rest $$) :unused _ :body (let ($$*) _*))
     (squash-lisp-1-check body))
    ((funcall :fun _ :params _*)
     (every #'squash-lisp-1-check (cons fun params)))

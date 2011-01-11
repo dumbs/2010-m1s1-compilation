@@ -152,7 +152,7 @@
 
 (defmacro erase-tests (&optional module)
   (unless (listp module) (setq module (list module)))
-  `(test-remove-module ',module))
+  `(progn (test-remove-module ',module) t))
 
 (erase-tests test-unitaire)
 (deftest (test-unitaire copy-all)
