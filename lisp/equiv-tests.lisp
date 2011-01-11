@@ -1,4 +1,4 @@
-(require 'squash-lisp "squash-lisp")
+;(require 'squash-lisp "squash-lisp")
 (require 'mini-meval "mini-meval")
 (require 'test-unitaire "test-unitaire")
 

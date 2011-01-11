@@ -9,7 +9,7 @@
 ;; TODO : tests unitaires.
 
 (require 'squash-lisp-1 "squash-lisp-1")
-(require 'squash-lisp-2 "squash-lisp-2")
+;;(require 'squash-lisp-2 "squash-lisp-2")
 
 ;; captures = ((capture*)*)
 ;; env-var = (((nom-variable symbole-unique état (référence-lecture*) (référence-écriture*))*)*)

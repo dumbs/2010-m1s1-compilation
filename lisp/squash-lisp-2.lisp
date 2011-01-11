@@ -3,10 +3,6 @@
 (require 'util "match") ;; derived-symbol, assoc-or, assoc-or-push
 
 (defun squash-lisp-2 (expr &optional env-var env-fun (globals (cons nil nil)))
-  "Transforme les let, let*, flet, labels, lambda en let simplifié
-   (uniquement les noms de variables, pas de valeur) et simple-lambda,
-   détecte les variables globales et stocke leurs noms dans une liste,
-   et rend tous les noms de fonction et de variables _locales_ uniques."
   (cond-match
    expr
    ((progn :body _*)
@@ -33,20 +29,24 @@
     expr)
    ((super-let :name ($$*) :stuff _*)
     (setq name (mapcar (lambda (x) (cons x (derived-symbol x))) name))
-    (let ((new-env-var env-var)
-          (new-env-fun env-fun))
+    (labels ((transform-super-let (expr)
+               `(progn
+                  ,@(loop
+                       for (type . clause) in stuff
+                       when (eq type 'set)
+                       collect `(setq ,(cdr (assoc (car clause) name)) (squash-lisp-2 (cadr clause) env-var env-fun globals))
+                       when (eq type 'use-var)
+                       do (push (assoc (car clause) name) env-var)
+                       when (eq type 'use-fun)
+                       do (push (assoc (car clause) name) env-fun)
+                       when (eq type 'if)
+                       do `(if ,(squash-lisp-2 (car clause) env-var env-fun globals)
+                               (progn ,(mapcar #'transform-super-let (cadr clause)))
+                               (progn ,(mapcar #'transform-super-let (caddr clause))))
+                       when (eq type 'progn)
+                       collect `(progn ,(mapcar (lambda (x) (squash-lisp-2 x env-var env-fun globals)) clause))))))
       `(let ,(mapcar #'cdr name)
-         (progn
-           ,@(loop
-                for (type . clause) in stuff
-                when (eq type 'set)
-                collect `(setq ,(cdr (assoc (car clause) name)) (squash-lisp-2 (cadr clause) new-env-var new-env-fun globals))
-                when (eq type 'use-var)
-                do (cons (assoc (car clause) name) env-var)
-                when (eq type 'use-fun)
-                do (cons (assoc (car clause) name) env-fun)
-                when (eq type 'progn)
-                collect `(progn ,(mapcar (lambda (x) (squash-lisp-2 x new-env-var new-env-fun globals)) clause)))))))
+         ,(transform-super-let expr))))
    ((let ((:name $$ :value _)*) :body _)
     (squash-lisp-2
      `(super-let ,name
@@ -78,39 +78,39 @@
                  ,@(mapcar (lambda (n v) `(set ,n ,v)) name value)
                  (progn ,body))
      env-var env-fun globals))
-   ((let ((:name $$ :value _)*) :body _)
-    (setq name (mapcar (lambda (x) (cons x (derived-symbol x))) name))
-    (let ((new-env-var (append name env-var)))
-      `(let ,(mapcar #'cdr name)
-         (progn ,@(mapcar (lambda (n v)
-                            `(setq ,(cdr n) ,(squash-lisp-2 v env-var env-fun globals)))
-                          name value)
-                ,(squash-lisp-2 body new-env-var env-fun globals)))))
-   (((? (eq x 'let*)) ((:name $$ :value _)*) :body _)
-    (setq name (mapcar (lambda (x) (cons x (derived-symbol x))) name))
-    (let ((new-env-var env-var)) ;; old = ((new-env-var (append name env-var)))
-      `(let ,(mapcar #'cdr name)
-         (progn ,@(mapcar (lambda (n v)
-                            (push (cons n v) new-env-var) ;; Ajouté
-                            `(setq ,(cdr n) ,(squash-lisp-2 v new-env-var env-fun globals))) ;; env-var -> new-env-var !!!
-                          name value)
-                ,(squash-lisp-2 body new-env-var env-fun globals)))))
-   ((simple-flet ((:name $$ :value _)*) :body _)
-    (setq name (mapcar (lambda (x) (cons x (derived-symbol x))) name))
-    (let ((new-env-fun (append name env-fun))) ;; new-env-var -> new-env-fun   +   env-var -> env-fun
-      `(let ,(mapcar #'cdr name)
-         (progn ,@(mapcar (lambda (n v)
-                            `(setq ,(cdr n) ,(squash-lisp-2 v env-var env-fun globals)))
-                          name value)
-                ,(squash-lisp-2 body env-var new-env-fun globals))))) ;; env-var -> env-fun
-   ((simple-labels ((:name $$ :value _)*) :body _)
-    (setq name (mapcar (lambda (x) (cons x (derived-symbol x))) name))
-    (let ((new-env-fun (append name env-fun))) ;; new-env-var -> new-env-fun   +   env-var -> env-fun
-      `(let ,(mapcar #'cdr name)
-         (progn ,@(mapcar (lambda (n v)
-                            `(setq ,(cdr n) ,(squash-lisp-2 v env-var new-env-fun globals))) ;; env-fun -> new-env-fun
-                          name value)
-                ,(squash-lisp-2 body env-var new-env-fun globals))))) ;; env-var -> env-fun
+   ;; ((let ((:name $$ :value _)*) :body _)
+   ;;  (setq name (mapcar (lambda (x) (cons x (derived-symbol x))) name))
+   ;;  (let ((new-env-var (append name env-var)))
+   ;;    `(let ,(mapcar #'cdr name)
+   ;;       (progn ,@(mapcar (lambda (n v)
+   ;;                          `(setq ,(cdr n) ,(squash-lisp-2 v env-var env-fun globals)))
+   ;;                        name value)
+   ;;              ,(squash-lisp-2 body new-env-var env-fun globals)))))
+   ;; (((? (eq x 'let*)) ((:name $$ :value _)*) :body _)
+   ;;  (setq name (mapcar (lambda (x) (cons x (derived-symbol x))) name))
+   ;;  (let ((new-env-var env-var)) ;; old = ((new-env-var (append name env-var)))
+   ;;    `(let ,(mapcar #'cdr name)
+   ;;       (progn ,@(mapcar (lambda (n v)
+   ;;                          (push (cons n v) new-env-var) ;; Ajouté
+   ;;                          `(setq ,(cdr n) ,(squash-lisp-2 v new-env-var env-fun globals))) ;; env-var -> new-env-var !!!
+   ;;                        name value)
+   ;;              ,(squash-lisp-2 body new-env-var env-fun globals)))))
+   ;; ((simple-flet ((:name $$ :value _)*) :body _)
+   ;;  (setq name (mapcar (lambda (x) (cons x (derived-symbol x))) name))
+   ;;  (let ((new-env-fun (append name env-fun))) ;; new-env-var -> new-env-fun   +   env-var -> env-fun
+   ;;    `(let ,(mapcar #'cdr name)
+   ;;       (progn ,@(mapcar (lambda (n v)
+   ;;                          `(setq ,(cdr n) ,(squash-lisp-2 v env-var env-fun globals)))
+   ;;                        name value)
+   ;;              ,(squash-lisp-2 body env-var new-env-fun globals))))) ;; env-var -> env-fun
+   ;; ((simple-labels ((:name $$ :value _)*) :body _)
+   ;;  (setq name (mapcar (lambda (x) (cons x (derived-symbol x))) name))
+   ;;  (let ((new-env-fun (append name env-fun))) ;; new-env-var -> new-env-fun   +   env-var -> env-fun
+   ;;    `(let ,(mapcar #'cdr name)
+   ;;       (progn ,@(mapcar (lambda (n v)
+   ;;                          `(setq ,(cdr n) ,(squash-lisp-2 v env-var new-env-fun globals))) ;; env-fun -> new-env-fun
+   ;;                        name value)
+   ;;              ,(squash-lisp-2 body env-var new-env-fun globals))))) ;; env-var -> env-fun
    ;; TODO
    ((lambda :params @ :body _)
     ;; TODO : simplifier la lambda-list
@@ -142,57 +142,10 @@
 
 ;; TODO : faire cette transformation dans squash-lisp-1
 ;; TODO : faire la transformation des let/let*/flet/labels en super-let dans squash-lisp-1
-(let* ((sliced-lambda-list (sliced-lambda-list *ll*))
-       (whole-sym (make-symbol "LAMBDA-PARAMETERS"))
-       (seen-keys-sym (make-symbol "SEEN-KEYS"))
-       (fixed    (cdr (assoc 'fixed    lambda-list)))
-       (optional (cdr (assoc 'optional lambda-list)))
-       (rest     (cdr (assoc 'rest     lambda-list)))
-       (key      (cdr (assoc 'key      lambda-list)))
-       (other    (cdr (assoc 'other    lambda-list)))
-       (aux      (cdr (assoc 'aux      lambda-list))))
-  `(lambda (&rest ,whole-sym)
-     'lambda-name ;; nil si fonction anonyme
-     (super-let (,@fixed
-                 ,@(mapcar #'car optional)
-                 ,@(remove nil (mapcar #'third optional))
-                 ,@rest
-                 ,@(mapcar #'car key)
-                 ,@(remove nil (mapcar #'fourth key))
-                 ,@(mapcar #'car aux)
-                 ,@(if (and key (not other)) `(,seen-keys-sym) nil))
-       ,@(loop
-            for param in fixed
-            collect `(set ,param (car ,whole-sym))
-            collect `(use ,param)
-            collect `(progn (setq ,whole-sym (cdr ,whole-sym))))
-       ,@(loop
-            for (param default predicate) in optional
-            collect `(set ,param (if ,whole-sym (car whole-sym) ,default))
-            collect `(progn (setq ,whole-sym (cdr ,whole-sym))) ;; TODO : devrait être dans le même if que ci-dessus, mais c'est assez difficile à loger…
-            when predicate
-              collect `(setq ,predicate (not (endp (,whole-sym))))
-              and collect `(use ,predicate)
-            collect `(use ,param))
-       ,@(if rest
-             `((set ,(car rest) ,whole-sym)
-               (use ,(car rest)))
-             nil)
-       ,@(if key
-             (progn (if (evenp (length ,whole-sym)) nil (error "Odd number of arguments, but function has &key.")))
-             nil)
-       ,@(loop
-            for (keyword param default predicate) in keyword
-            ;; TODO : &key not implemented yet
-            do (list keyword param default predicate))
-       ,@(loop
-            for (param val) in aux
-            collect `(set ,param ,val)
-            collect `(use ,param))
-       (progn ,body))))
+;; TODO : raison : transformer les appels de fonction en funcall, etc.
 
 
-nil à la fin
+;; nil à la fin
                                 
 (slice-up-lambda-list '(a b &optional (u 3 v) &rest c &key ((:foo bar)) :quux (:baz 'glop) &allow-other-keys &aux (x 1) (y (+ x 2))))
 

@@ -7,7 +7,7 @@ Tests unitaires
 
 mini-meval
 ==========
-`mini-meval` est un méta-évaluateur «naïf» mais qui supporte pratiquement tout LISP sauf CLOS (Common Lisp Object System).
+`mini-meval` est un méta-évaluateur «naïf» mais qui supporte pratiquement tout LISP sauf CLOS (Common Lisp Object System), les packages, les hash, ….
 
 Syntaxe supportée par mini-meval et le simplificateur
 =====================================================
@@ -31,6 +31,10 @@ lisp2li
 
 squash-lisp
 ===========
+* Pour transformer les let/let*/flet/labels/lambda en let simplifiés : décorrelation de l'étape de déclaration d'une variable, son
+  affectation, et son utilisation.
+* La transformation est hygénique (les special-form intermédiaires qu'on ajoute sont des symboles uniques. On aurait pu utiliser le système
+  de package, mais on aurait dû supporter les packages à ce moment-là).
 * En 3 passes :
   * Passe 1 :
     * macro-expansion (on utilise `mini-meval`) et `eval-when`.
@@ -100,3 +104,4 @@ Ramasse-miettes
 Implémentation de fonctions LISP
 ================================
 * On a notre propre fonction `read` et notre propre fonction `format` pour être autonomes.
+* Implémentation de loop avec toutes les extensions sauf celles de typage (analysées mais ignorées silencieusement)
