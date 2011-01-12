@@ -276,8 +276,8 @@
      ;; TODO: simplifier la lambda-list.
      ((lambda :params _ :body _*)
       (let* ((sliced-lambda-list (slice-up-lambda-list params))
-             (whole-sym    (make-symbol "LAMBDA-PARAMETERS"))
-             (temp-key-sym (make-symbol "TEMP-KEY-SYM"))
+             (whole-sym    (derived-symbol "LAMBDA-PARAMETERS"))
+             (temp-key-sym (derived-symbol "TEMP-KEY-SYM"))
              (fixed        (cdr (assoc 'fixed    sliced-lambda-list)))
              (optional     (cdr (assoc 'optional sliced-lambda-list)))
              (rest         (cdr (assoc 'rest     sliced-lambda-list)))
@@ -285,7 +285,7 @@
              (other        (cdr (assoc 'other    sliced-lambda-list)))
              (aux          (cdr (assoc 'aux      sliced-lambda-list))))
         (push (cons whole-sym whole-sym) env-var)
-        `(named-lambda ,(make-symbol "LAMBDA") (&rest ,whole-sym)
+        `(named-lambda ,(derived-symbol "ANONYMOUS-LAMBDA") (&rest ,whole-sym)
            ,(transform whole-sym) ;; pour pas qu'il soit unused si aucun paramètre.
            ,(transform
              `(super-let (,@fixed

@@ -118,7 +118,7 @@
 ;; - &rest
 ;; - eq (vérifier qu'on préserve bien l'égalité de pointeurs là où il faut) / = / eql / equal / equalp
 ;; - load / open / close
-;; - defvar (gestion correcte des variables spéciales)
+;; - defvar [done mini-meval] (gestion correcte des variables spéciales)
 ;; - array support (array-total-size, row-major-aref, copy-seq)
 ;; - string support (char=, map, string (symbol => string), format, print)
 ;; - coder un reverse rapide.
@@ -477,7 +477,7 @@ Mini-meval sera appellé sur des morceaux spécifiques du fichier source. Il fau
    #| Traitement des appels de fonction |#
    ((:lambda (lambda @ _*) :params _*)
     #| - Si c'est une fonction anonyme, on l'exécute. |#
-    (apply (mini-meval lambda etat) params))
+    (apply (mini-meval lambda etat) (mapcar (lambda (x) (mini-meval x etat)) params)))
    (((function :fun (lambda _ . _)) :params . _)
     (mini-meval `(,fun ,@params) etat))
    ((:name (function $$) :params _*)
@@ -569,7 +569,7 @@ Mini-meval sera appellé sur des morceaux spécifiques du fichier source. Il fau
 
 (deftest (mini-meval setf setq)
     (mini-meval '(list (defvar *test-var-z* 42) *test-var-z* (setq *test-var-z* 123) *test-var-z*) etat)
-  '(x 42 123 123))
+  '(*test-var-z* 42 123 123))
 
 ;; TODO : tests setf
 

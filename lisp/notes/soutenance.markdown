@@ -92,6 +92,7 @@ compilation
 * On avait déjà un système d'exploitation assez simple qui tournait de manière autonome sur un PC.
 * On a donc stotché ensemble une REPL compilée et le SE de manière à avoir une REPL autonome qui ne dépend de rien.
 * Le système d'exploitation sous-jacent fournit juste de quoi faire des entrées-sorties.
+* On a choisi de l'hypothèse d'un «monde fermé», dans lequel on connait tout le code à compiler dès le départ.
 
 Ramasse-miettes
 ===============

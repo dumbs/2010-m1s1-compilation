@@ -18,6 +18,10 @@
 ;; $                   (and (atom expr) (not (null expr)))
 ;; $$                  (symbolp expr)
 ;; $k                  (keywordp expr)
+;; $n                  (numberp expr)
+;; $ap                 (assembly-place-p expr)           ;; définie dans compilation.lisp
+;; $iap                (immutable-assembly-place-p expr) ;; définie dans compilation.lisp
+;; $map                (mutable-assembly-place-p expr)   ;; définie dans compilation.lisp
 ;; $&                  (and (symbolp expr) (member expr '(&optional &rest &key &allow-other-keys &aux)))
 ;; @                   liste propre : (and (listp expr) (match @ (cdr expr)))
 ;; @.                  cons : (consp expr)
@@ -36,6 +40,10 @@
 ;; Dans le cas où le pattern n'est pas "simple", la valeur correspondante
 ;; sera une liste de toutes les occurences de pattern
 
+(declaim (ftype function assembly-place-p))           ;; définie dans compilation.lisp
+(declaim (ftype function immutable-assembly-place-p)) ;; définie dans compilation.lisp
+(declaim (ftype function mutable-assembly-place-p))   ;; définie dans compilation.lisp
+
 (defun pattern-match-do-lambdas-transform (pattern)
   (mapcar (lambda (pred)
             (cond ((atom pred)               (list 'function pred))
@@ -53,7 +61,7 @@
              ,(if (second pattern)
                   (let ((?-clause (cdr (third pattern)))
                         (type '_))
-                    (when (and (consp ?-clause) (member (car ?-clause) '(nil _ $ $$ $k $& @ @.)))
+                    (when (and (consp ?-clause) (member (car ?-clause) '(nil _ $ $$ $k $n $ap $iap $map $& @ @.)))
                       (setq type (car ?-clause))
                       (setq ?-clause (cdr ?-clause)))
                     ;; TODO : (? or foo (? _ and bar baz) (? $ and quux))
@@ -364,6 +372,22 @@
               ;; $k
               ((eq '$k pattern)
                (when (keywordp expr)
+                 (acons-capture capture-name expr nil)))
+              ;; $ap
+              ((eq '$ap pattern)
+               (when (assembly-place-p expr)
+                 (acons-capture capture-name expr nil)))
+              ;; $iap
+              ((eq '$iap pattern)
+               (when (immutable-assembly-place-p expr)
+                 (acons-capture capture-name expr nil)))
+              ;; $ap
+              ((eq '$map pattern)
+               (when (mutable-assembly-place-p expr)
+                 (acons-capture capture-name expr nil)))
+              ;; $n
+              ((eq '$n pattern)
+               (when (numberp expr)
                  (acons-capture capture-name expr nil)))
               ;; $&
               ((eq '$& pattern)

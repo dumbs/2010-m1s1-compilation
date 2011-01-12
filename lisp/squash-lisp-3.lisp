@@ -11,7 +11,7 @@
    On sort toutes les lambdas (fonctions anonymes), on les nomme avec un symbole unique, et on les met au top-level.
    
    local-env : car = variables locales, cdr = variables capturées."
-  (macrolet ((transform (expr &optional (local-env 'local-env) (getset 'getset)) `(squash-lisp-3-internal ,expr globals ,local-env ,getset top-level)))
+  (macrolet ((transform (expr &optional (local-env 'local-env)) `(squash-lisp-3-internal ,expr globals ,local-env getset top-level)))
     (cond-match
      expr
      ;; simple-tagbody est équivalent à un progn, mais nécessaire pour les macrolet.
@@ -60,87 +60,91 @@
       expr)
      ((let :vars ($$*) :body _)
       (setf (car local-env) (append vars (car local-env)))
+      (dolist (v vars)
+        (when (assoc v (car getset))
+          (error "squash-lisp-3-internal : Assertion failed ! Duplicate definition of ~w" v))
+        (push (cons v (cons nil nil)) (car getset)))
       (transform body))
-     ((named-lambda :name $$ :params (&rest :params-name $$) :unused _ :body (let ($$*) _*))
-      (let* ((new-local-env (cons (list params-name) nil))
+     ((named-lambda :name $$ :params (&rest :params-sym $$) :unused _ :body (let ($$*) _*))
+      (let* ((closure-sym (derived-symbol "CLOSURE"))
+             (new-local-env (progn (push (cons params-sym (cons nil nil)) (car getset))
+                                   (push (cons closure-sym (cons nil nil)) (car getset))
+                                   (cons (list closure-sym params-sym) nil)))
              (tbody (transform body new-local-env))
-             (new-getset nil)
-             (our-captures nil)
-             (not-our-captures nil))
+             (transitive-captures nil)
+             (here-captures nil))
         ;; on "nomme" la lambda, et ce nom est global
         (push name (car globals))
         ;; on transforme les get-var de variables capturées en get-captured-var
-        (dolist (getter (car getset))
-          (if (member (cadr getter) (cdr local-env))
-              (setf (car getter) 'get-captured-var)
-              (push getter new-getset)))
-        ;; on remplace le (car getset) par ceux qui ont été ignorés
-        (setf (car getset) new-getset)
-        ;; on nettoie pour faire les sets
-        (setf new-getset nil)
-        ;; on transforme les get-var de variables capturées en get-captured-var
-        (dolist (setter (cdr getset))
-          (if (member (cadr setter) (cdr local-env))
-              (setf (car setter) 'set-captured-var)
-              (push setter new-getset)))
-        ;; on remplace le (cdr getset) par ceux qui ont été ignorés
-        (setf (cdr getset) new-getset)
-        ;; on récupère les noms variables qu'on a déclaré (c'est nous qui les capturons).
-        (setf our-captures (intersection (car new-local-env) (cdr new-local-env)))
-        (setf not-our-captures (set-difference (cdr new-local-env) our-captures))
-        ;; on ajoute celles qu'on n'a pas capturé aux captures d'au-dessus
-        (setf (cdr local-env) (append not-our-captures (cdr local-env)))
+        (dolist (cap (cdr new-local-env))
+          (unless (or (member cap here-captures) (member cap transitive-captures))
+            (if (member cap (car new-local-env))
+                (let ((gs (assoc cap (car getset))))
+                  (unless gs (error "squash-lisp-3-internal : Assertion failed ! ~w is captured, but not in getset." cap))
+                  (dolist (getter (cadr gs))
+                    (setf (car getter) 'get-captured-var))
+                  (dolist (setter (cddr gs))
+                    (setf (car setter) 'set-captured-var))
+                  (push cap here-captures))
+                (progn
+                  (push cap (cdr local-env))
+                  (push cap transitive-captures)))))
         ;; on construit la lambda au top-level
-        (push `(set ,name (lambda ,params ,unused
-                                  (let ,(car new-local-env)
-                                    ,@(mapcar (lambda (x) `(make-captured-var ,x)) our-captures)
-                                    ,tbody)))
+        (push `(set ',name (lambda (,closure-sym &rest ,params-sym) (get-var ,closure-sym) ,unused
+                                   (let (,@(remove closure-sym (remove params-sym (car new-local-env)))
+                                         ,@transitive-captures)
+                                     (progn
+                                       ,@(mapcar (lambda (x) `(make-captured-var ,x)) here-captures)
+                                       ,@(loop for x in transitive-captures
+                                            collect `(setq ,x (funcall (fdefinition 'car) (get-var ,closure-sym)))
+                                            collect `(setq ,closure-sym (funcall (fdefinition 'cdr) (get-var ,closure-sym))))
+                                       ,tbody))))
               (car top-level))
         ;; on remplace toute la lambda par un accès à sa définition au top-level
-        `(symbol-value ',name)))
+        `(make-closure ,name ,@transitive-captures)))
      ((funcall :fun _ :params _*)
       `(funcall ,@(mapcar (lambda (x) (transform x)) (cons fun params))))
      ((quote _)
       expr)
-     ((get-var :var $$)
-      ;; chercher si var est dans (car local-env) ou bien dans global
-      ;; si oui -> get-var
-      ;; sinon, -> get-captured-var
-      (if (or (member var (car local-env)) (member var (car globals)))
-          (progn
-            (push expr (car getset))
-            expr)
-          (progn
-            (pushnew var (cdr local-env))
-            `(get-captured-var ,var))))
+     ((get-var :name $$)
+      (if (member name (car globals))
+          expr
+          (let ((getter (list 'get-var name))
+                (assoc (assoc name (car getset))))
+            (unless (member name (car local-env))
+              (pushnew name (cdr local-env)))
+            (unless assoc
+              (error "squash-lisp-3-internal : Assertion failed ! ~w used as local but not in getset alist." name))
+            (push getter (cadr assoc))
+            getter)))
      ((setq :name $$ :value _)
-      ;; comme ci-dessus
-      (if (or (member name (car local-env)) (member name (car globals)))
-          (progn
-            (push expr (car getset))
-            `(setq ,name ,(transform value)))
-          (progn
-            (pushnew name (cdr local-env))
-            `(set-captured-var ,name ,(transform value)))))
-     ;; + (transform value)
+      (if (member name (car globals))
+          expr
+          (let ((setter (list 'setq name (transform value)))
+                (assoc (assoc name (car getset))))
+            (unless (member name (car local-env))
+              (pushnew name (cdr local-env)))
+            (unless assoc
+              (error "squash-lisp-3-internal : Assertion failed ! ~w used as local but not in getset alist." name))
+            (push setter (cddr assoc))
+            setter)))
      ((fdefinition (quote $$))
       expr)
      ((symbol-value (quote $$))
       expr)
-     ((set :var (quote $$) :value _)
-      `(set ,var ,(transform value)))
+     ((set (quote :var $$) :value _)
+      `(set ',var ,(transform value)))
      (_
-      (error "squash-lisp-3-internal : Assertion failed ! this should not be here : ~a" expr)))))
+      (error "squash-lisp-3-internal : Assertion failed ! this should not be here : ~w" expr)))))
 
 (defun squash-lisp-3 (expr globals)
   (let* ((tl (cons nil nil))
          (lsym (make-symbol "MAIN"))
          (psym (make-symbol "NO-PARAMETERS")))
     (squash-lisp-3-internal `(named-lambda ,lsym (&rest ,psym) (get-var ,psym) (let () ,expr)) globals (cons nil nil) (cons nil nil) tl)
-    `(top-level ,lsym (progn ,@(car tl)))))
+    `(top-level ,lsym ,globals (progn ,@(reverse (car tl))))))
 
-
-(defun squash-lisp-3-check-internal (expr)
+(defun squash-lisp-3-check-2 (expr)
   "Vérifie si expr est bien un résultat valable de squash-lisp-1.
 Permet aussi d'avoir une «grammaire» du simple-lisp niveau 1.
 Attention : il y a quelques invariants qui ne sont pas présents dans cette vérification."
@@ -148,80 +152,120 @@ Attention : il y a quelques invariants qui ne sont pas présents dans cette vér
    expr
    ;; simple-tagbody est équivalent à un progn, mais nécessaire pour les macrolet.
    (((? (member x '(progn simple-tagbody))) :body _*)
-    (every #'squash-lisp-3-check-internal body))
+    (every #'squash-lisp-3-check-2 body))
    ((if :condition _ :si-vrai _ :si-faux _)
-    (and (squash-lisp-3-check-internal condition)
-         (squash-lisp-3-check-internal si-vrai)
-         (squash-lisp-3-check-internal si-faux)))
+    (and (squash-lisp-3-check-2 condition)
+         (squash-lisp-3-check-2 si-vrai)
+         (squash-lisp-3-check-2 si-faux)))
    ((unwind-protect :body _ :cleanup _)
-    (and (squash-lisp-3-check-internal body)
-         (squash-lisp-3-check-internal cleanup)))
+    (and (squash-lisp-3-check-2 body)
+         (squash-lisp-3-check-2 cleanup)))
    ;; tagbody-unwind-catch est équivalent à unwind-catch, mais nécessaire pour les macrolet.
    (((? (member x '(unwind-catch tagbody-unwind-catch))) :object _ :body (progn _*) :catch-code _)
-    (and (squash-lisp-3-check-internal object)
-         (squash-lisp-3-check-internal body)
-         (squash-lisp-3-check-internal catch-code)))
+    (and (squash-lisp-3-check-2 object)
+         (squash-lisp-3-check-2 body)
+         (squash-lisp-3-check-2 catch-code)))
    ((unwind :object _)
-    (squash-lisp-3-check-internal object))
+    (squash-lisp-3-check-2 object))
    ((unwind-for-tagbody :object _ :post-unwind-code _)
-    (and (squash-lisp-3-check-internal object)
-         (squash-lisp-3-check-internal post-unwind-code)))
+    (and (squash-lisp-3-check-2 object)
+         (squash-lisp-3-check-2 post-unwind-code)))
    ((jump-label :name $$)
     t)
    ((jump :dest $$)
     t)
    ;; ((let ($$*) :body _)
-   ;;  (squash-lisp-3-check-internal body))
+   ;;  (squash-lisp-3-check-2 body))
    ;; ((lambda (&rest $$) :unused _ :body (let ($$*) _*))
-   ;;  (squash-lisp-3-check-internal body))
+   ;;  (squash-lisp-3-check-2 body))
    ((funcall :fun _ :params _*)
-    (every #'squash-lisp-3-check-internal (cons fun params)))
+    (every #'squash-lisp-3-check-2 (cons fun params)))
    ((quote _)
     t)
    ((get-var $$)
     t)
    ((setq :name $$ :value _)
-    (squash-lisp-3-check-internal value))
+    (squash-lisp-3-check-2 value))
    ((fdefinition (quote $$))
     t)
    ((symbol-value (quote $$))
     t)
    ((set (quote $$) :value _)
-    (squash-lisp-3-check-internal value))
+    (squash-lisp-3-check-2 value))
+   ((make-closure $$ $$*)
+    t)
    ((make-captured-var $$)
     t)
    ((get-captured-var $$)
     t)
    ((set-captured-var $$ :value _)
-    (squash-lisp-3-check-internal value))
+    (squash-lisp-3-check-2 value))
    (_
-    (warn "squash-lisp-3-check-internal: Assertion failed ! This should not be here : ~w" expr)
+    (warn "squash-lisp-3-check-2: Assertion failed ! This should not be here : ~w" expr)
+    nil)))
+
+(defun squash-lisp-3-check-1 (expr)
+  (cond-match
+   expr
+   ((set (quote $$) (lambda ($$ &rest $$) (get-var $$) (get-var $$) (let ($$*) :body _)))
+    (squash-lisp-3-check-2 body))
+   (_
+    (warn "~&squash-lisp-3-check : this should not be here :~&~w" expr)
     nil)))
 
 (defun squash-lisp-3-check (expr)
   (cond-match expr
-              ((top-level $$ (progn :body _*))
-               (every (lambda (x)
-                        (cond-match x
-                                    ((set $$ (lambda (&rest $$) (get-var $$)
-                                                     (let ($$*) :bodys _*)))
-                                     (every #'squash-lisp-3-check-internal bodys))
-                                    (_
-                                     (warn "~&squash-lisp-3-check : this should not be here :~&~a" x)
-                                     nil)))
-                      body))
-              (_ (warn "~&squash-lisp-3-check : this should not be here :~&~a" expr)
+              ((top-level $$ (($$*) . ($$*)) (progn :body _*))
+               (every #'squash-lisp-3-check-1 body))
+              (_ (warn "~&squash-lisp-3-check : this should not be here :~&~w" expr)
                  nil)))
 
 (defun nice-squash-lisp-3-check (expr)
-  (match (top-level $$ (progn
-                         (set $$ (lambda (&rest $$) (get-var $$)
-                                         (let ($$*) (? squash-lisp-3-check-internal)*)))*))
+  (match (top-level $$ (($$*) . ($$*)) (progn (set '$$ (lambda ($$ &rest $$) (get-var $$) (get-var $$) (let ($$*) (? squash-lisp-3-check-2))))*))
          expr))
   
 (defun squash-lisp-1+3 (expr &optional (etat (list nil nil nil)))
   (let ((globals (cons nil nil)))
     (squash-lisp-3 (squash-lisp-1 expr t etat nil nil globals) globals)))
+
+(defun squash-lisp-3-wrap (expr)
+  `(macrolet ((unwind-catch (object body catch-code)
+                (let ((bname (make-symbol "BLOCK")))
+                  `(block ,bname
+                     (catch ,object (return-from ,bname ,body))
+                     ,catch-code)))
+              (tagbody-unwind-catch (object body catch-code)
+                catch-code ;; unused variable
+                ;; les (progn object) et (progn x) sert à permettre l'expansion des macros sur x
+                ;; (il est possible qu'elles ne soient pas expansées à la racine du tagbody)
+                `(tagbody (progn ,object) ,@(mapcar (lambda (x) (if (eq (car x) 'jump-label) (cadr x) (progn x))) (cdr body))))
+              (simple-tagbody (&rest body)
+                `(tagbody ,@(mapcar (lambda (x) (if (eq (car x) 'jump-label) (cadr x) (progn x))) body)))
+              (unwind (object)
+                `(throw ,object nil))
+              (unwind-for-tagbody (object post-unwind-code)
+                object ;; unused variable
+                post-unwind-code)
+              (top-level (main globals body)
+                globals
+                `(progn
+                   ,body
+                   (funcall ,main nil)))
+              (jump (dest)
+                `(go ,dest))
+              (get-var (x)
+                x)
+              (make-closure (fun &rest vars)
+                (let ((args-sym (make-symbol "AR")))
+                  `(lambda (&rest ,args-sym)
+                     (apply ,fun (list ,@vars) ,args-sym))))
+              (make-captured-var (x)
+                `(setq ,x (cons nil nil)))
+              (get-captured-var (x)
+                `(car ,x))
+              (set-captured-var (x v)
+                `(setf (car ,x) ,v)))
+     ,expr))
 
 (require 'test-unitaire "test-unitaire")
 (erase-tests squash-lisp-3)

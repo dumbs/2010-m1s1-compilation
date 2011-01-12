@@ -4,19 +4,13 @@
 
 (defmacro deftest-equiv (module test expected)
   `(progn
-     (deftest ,(append '(equiv expected/eval)          module) (eval ,test) ,expected)
-     (deftest ,(append '(equiv expected/mini-meval)    module) (mini-meval ,test etat) ,expected)
-     (deftest ,(append '(equiv squash-lisp-1-check)    module) (squash-lisp-1-check (squash-lisp-1 ,test t etat)) t) ;; etat -> pour les macros
-     (deftest ,(append '(equiv expected/squash-lisp-1) module) (eval (squash-lisp-1-wrap (squash-lisp-1 ,test t etat))) ,expected) ;; etat -> pour les macros
-     (deftest ,(append '(equiv squash-lisp-3-check)    module)
-         (let ((globals (cons nil nil)))
-           (squash-lisp-3-check (squash-lisp-3 (squash-lisp-1 ,test t etat nil nil globals) globals)))
-       t)
-     ;; (deftest ,(append '(equiv expected/squash-lisp-3) module)
-     ;;     (let ((globals (cons nil nil)))
-     ;;       (eval (squash-lisp-3-wrap (squash-lisp-3 (squash-lisp-1 ,test t etat nil nil globals) globals))))
-     ;;   ,expected)))
-))
+     (deftest ,(append '(equiv eval expected)          module) (eval ,test) ,expected)
+     (deftest ,(append '(equiv mini-meval expected)    module) (mini-meval ,test etat) ,expected)
+     (deftest ,(append '(equiv squash-lisp-1 check)    module) (squash-lisp-1-check (squash-lisp-1 ,test t etat)) t)
+     (deftest ,(append '(equiv squash-lisp-1 expected) module) (eval (squash-lisp-1-wrap (squash-lisp-1 ,test t etat))) ,expected)
+     (deftest ,(append '(equiv squash-lisp-3 check)    module) (squash-lisp-3-check (squash-lisp-1+3 ,test etat)) t)
+     (deftest ,(append '(equiv squash-lisp-3 expected) module) (eval (squash-lisp-3-wrap (squash-lisp-1+3 ,test etat))) ,expected)))
+
 (erase-tests equiv)
      
 (deftestvar (equiv) etat (push-local (make-etat list + - cons car cdr < > <= >= =) '*test-equiv-var-x* 'variable 42))
@@ -226,5 +220,18 @@
 (deftest-equiv (lambda captures)
     '(funcall ((lambda (x y) x (lambda (x) (+ x y))) 1 2) 3)
   5)
+
+(deftest-equiv (lambda captures ycombinator)
+    '((lambda (fibo)
+        (list (funcall fibo 0)
+              (funcall fibo 1)
+              (funcall fibo 2)
+              (funcall fibo 3)
+              (funcall fibo 4)
+              (funcall fibo 5)
+              (funcall fibo 6)
+              (funcall fibo 7)))
+      ((lambda (f) (lambda (x) (funcall f f x))) (lambda (f n) (if (<= n 1) n (+ (funcall f f (- n 1)) (funcall f f (- n 2)))))))
+  '(0 1 1 2 3 5 8 13))
 
 (provide 'equiv-tests)
