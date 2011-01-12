@@ -8,10 +8,15 @@
      (deftest ,(append '(equiv expected/mini-meval)    module) (mini-meval ,test etat) ,expected)
      (deftest ,(append '(equiv squash-lisp-1-check)    module) (squash-lisp-1-check (squash-lisp-1 ,test t etat)) t) ;; etat -> pour les macros
      (deftest ,(append '(equiv expected/squash-lisp-1) module) (eval (squash-lisp-1-wrap (squash-lisp-1 ,test t etat))) ,expected) ;; etat -> pour les macros
-     ;; (deftest ,(append '(equiv squash-lisp-2-check)    module) (squash-lisp-2-check (squash-lisp-2 ,test)) t)
-     ;; (deftest ,(append '(equiv expected/squash-lisp-2) module) (eval (squash-lisp-2-wrap (squash-lisp-2 ,test))) ,expected)
-     ))
-
+     (deftest ,(append '(equiv squash-lisp-3-check)    module)
+         (let ((globals (cons nil nil)))
+           (squash-lisp-3-check (squash-lisp-3 (squash-lisp-1 ,test t etat nil nil globals) globals)))
+       t)
+     ;; (deftest ,(append '(equiv expected/squash-lisp-3) module)
+     ;;     (let ((globals (cons nil nil)))
+     ;;       (eval (squash-lisp-3-wrap (squash-lisp-3 (squash-lisp-1 ,test t etat nil nil globals) globals))))
+     ;;   ,expected)))
+))
 (erase-tests equiv)
      
 (deftestvar (equiv) etat (push-local (make-etat list + - cons car cdr < > <= >= =) '*test-equiv-var-x* 'variable 42))
@@ -217,5 +222,9 @@
 (deftest-equiv (function extérieur)
     '#'+
   #'+)
+
+(deftest-equiv (lambda captures)
+    '(funcall ((lambda (x y) x (lambda (x) (+ x y))) 1 2) 3)
+  5)
 
 (provide 'equiv-tests)

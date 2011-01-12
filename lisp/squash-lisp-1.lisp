@@ -285,7 +285,7 @@
              (other        (cdr (assoc 'other    sliced-lambda-list)))
              (aux          (cdr (assoc 'aux      sliced-lambda-list))))
         (push (cons whole-sym whole-sym) env-var)
-        `(lambda (&rest ,whole-sym)
+        `(named-lambda ,(make-symbol "LAMBDA") (&rest ,whole-sym)
            ,(transform whole-sym) ;; pour pas qu'il soit unused si aucun paramètre.
            ,(transform
              `(super-let (,@fixed
@@ -436,6 +436,9 @@
               (unwind-for-tagbody (object post-unwind-code)
                 object ;; unused variable
                 post-unwind-code)
+              (named-lambda (name params &rest body)
+                  name ;; unused variable
+                  `(lambda ,params ,@body))
               ;;Les macros ne sont pas expansées à la racine d'un tagbody, donc on expanse à la main
               ;;  les jump-label lorsqu'on rencontre un tagbody-unwind-catch.
               ;;(jump-label (name)
@@ -478,7 +481,7 @@ Attention : il y a quelques invariants qui ne sont pas présents dans cette vér
     t)
    ((let ($$*) :body _)
     (squash-lisp-1-check body))
-   ((lambda (&rest $$) :unused _ :body (let ($$*) _*))
+   ((named-lambda :name $$ (&rest $$) :unused _ :body (let ($$*) _*))
     (squash-lisp-1-check body))
    ((funcall :fun _ :params _*)
     (every #'squash-lisp-1-check (cons fun params)))

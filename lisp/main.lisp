@@ -10,8 +10,9 @@
 (load "vm")
 (load "match")
 (load "mini-meval")
-(load "squash-lisp")
 (load "squash-lisp-1")
+(load "squash-lisp-3")
+(load "squash-lisp")
 (load "equiv-tests")
 
 (provide 'main)
