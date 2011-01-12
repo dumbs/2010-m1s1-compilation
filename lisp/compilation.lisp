@@ -84,29 +84,6 @@
     (apply #'append (mapcar (lambda (x) (cons (list 'section (car x)) (reverse (cdr x)))) res))))
 
 
-(defun compilo-1 (expr &aux res)
-  (match
-   (top-level :main $$ (progn (set :names $$ (lambda (:closure-names $$ &rest :params-names $$) (get-var $$) (get-var $$) (let :vars ($$*) :bodys _*)))*))
-   expr
-   (setq res (loop
-                for name in names
-                and closure-name in closure-names
-                and params-name in params-names
-                and var in vars
-                and body in bodys
-                collect `(label name)
-                collect `(mov (constant ,(+ 2 (length var))) (register r0)) ;; +1 pour les paramètres (nécessaire?)
-                collect `(push (register ip))
-                collect `(jmp (constant ,(syslabel 'reserve-stack)))
-                collect (compilo-2 `(progn body) (loop
-                                                    for v in (cons closure-name (cons params-name var))
-                                                    for i upfrom 0
-                                                    collect `(,var . ,i)))))
-   `(section code (jmp main) ,@res)))
-
-(defun compilo (expr)
-  (flatten-asm (compilo-1 (squash-lisp-1+3 expr))))
-
 (defun compilo-2 (expr variables)
   "Vérifie si expr est bien un résultat valable de squash-lisp-1.
 Permet aussi d'avoir une «grammaire» du simple-lisp niveau 1.
@@ -166,6 +143,29 @@ Attention : il y a quelques invariants qui ne sont pas présents dans cette vér
                (warn "compilo-2: Assertion failed ! This should not be here : ~w" expr)
                nil))))
     (compilo-3 expr)))
+
+(defun compilo-1 (expr &aux res)
+  (match
+   (top-level :main $$ (progn (set :names $$ (lambda (:closure-names $$ &rest :params-names $$) (get-var $$) (get-var $$) (let :vars ($$*) :bodys _*)))*))
+   expr
+   (setq res (loop
+                for name in names
+                and closure-name in closure-names
+                and params-name in params-names
+                and var in vars
+                and body in bodys
+                collect `(label name)
+                collect `(mov (constant ,(+ 2 (length var))) (register r0)) ;; +1 pour les paramètres (nécessaire?)
+                collect `(push (register ip))
+                collect `(jmp (constant ,(syslabel 'reserve-stack))) ;; lance le gc pour re-dimensionner le tas si nécessaire / ou bien erreur si dépassement.
+                collect (compilo-2 `(progn body) (loop
+                                                    for v in (cons closure-name (cons params-name var))
+                                                    for i upfrom 0
+                                                    collect `(,var . ,i)))))
+   `(section code (jmp main) ,@res)))
+
+(defun compilo (expr)
+  (flatten-asm (compilo-1 (squash-lisp-1+3 expr))))
 
 (squash-lisp-1+3 '(+ 2 3))
 

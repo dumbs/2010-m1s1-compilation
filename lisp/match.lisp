@@ -719,6 +719,8 @@ donc seule la valeur de la dernière expression de la dernière clause est renvo
 (require 'test-unitaire "test-unitaire")
 (erase-tests match)
 
+(eval-when (:execute :load-toplevel :compile-toplevel) (format t "~&;; loading tests : 0%"))
+
 ;;;; Tests de matching (vrai / faux)
 
 ;;; Symboles, chiffres, etc
@@ -771,6 +773,8 @@ donc seule la valeur de la dernière expression de la dernière clause est renvo
 (deftest (match listes) (match (a (1 2 3) c)  '(x (1 2 3) c)) nil #'booleq)
 
 ;;; _
+
+(eval-when (:execute :load-toplevel :compile-toplevel) (format t "~&;; loading tests : 5%"))
 
 (deftest (match _) (match _              'a)             t   #'booleq)
 (deftest (match _) (match _              '(a b))         t   #'booleq)
@@ -836,6 +840,8 @@ donc seule la valeur de la dernière expression de la dernière clause est renvo
 
 ;;; @  Mêmes tests que _ , on indique les différences avec ";; diff" à la fin de la ligne.
 
+(eval-when (:execute :load-toplevel :compile-toplevel) (format t "~&;; loading tests : 10%"))
+
 (deftest (match @) (match @              'a)             nil #'booleq) ;; diff
 (deftest (match @) (match @              '(a b))         t   #'booleq)
 (deftest (match @) (match @              '())            t   #'booleq)
@@ -899,6 +905,8 @@ donc seule la valeur de la dernière expression de la dernière clause est renvo
 (deftest (match @ liste) (match (@)            'a)             nil #'booleq)
 
 ;;; @.  Mêmes tests que @ , on indique les différences avec ";; diff avec @" à la fin de la ligne.
+
+(eval-when (:execute :load-toplevel :compile-toplevel) (format t "~&;; loading tests : 20%"))
 
 (deftest (match @.) (match @.              'a)             nil #'booleq)
 (deftest (match @.) (match @.              '(a b))         t   #'booleq)
@@ -964,6 +972,8 @@ donc seule la valeur de la dernière expression de la dernière clause est renvo
 
 ;;; $  Mêmes tests que _ , on indique les différences avec ";; diff" à la fin de la ligne.
 
+(eval-when (:execute :load-toplevel :compile-toplevel) (format t "~&;; loading tests : 30%"))
+
 (deftest (match $) (match $              'a)             t   #'booleq)
 (deftest (match $) (match $              '(a b))         nil #'booleq) ;; diff
 (deftest (match $) (match $              '())            nil #'booleq) ;; diff
@@ -1028,6 +1038,8 @@ donc seule la valeur de la dernière expression de la dernière clause est renvo
 
 ;;; *
 
+(eval-when (:execute :load-toplevel :compile-toplevel) (format t "~&;; loading tests : 40%"))
+
 (deftest (match * symbole) (match (a *)             '(a a a a))                       t   #'booleq)
 (deftest (match * symbole) (match (a *)             '(a))                             t   #'booleq)
 (deftest (match * symbole) (match (a *)             '())                              t   #'booleq)
@@ -1087,6 +1099,8 @@ donc seule la valeur de la dernière expression de la dernière clause est renvo
 (deftest (match * sous-motif) (match (a (1 $ * 2)* c)  '(a c))                           t   #'booleq)
 
 ;;; + Mêmes tests que * , on indique les différences avec ";; diff" à la fin de la ligne.
+
+(eval-when (:execute :load-toplevel :compile-toplevel) (format t "~&;; loading tests : 50%"))
 
 (deftest (match + symbole) (match (a +)             '(a a a a))                       t   #'booleq)
 (deftest (match + symbole) (match (a +)             '(a))                             t   #'booleq)
@@ -1148,6 +1162,8 @@ donc seule la valeur de la dernière expression de la dernière clause est renvo
 
 ;;; ? Mêmes tests que * , on indique les différences avec ";; diff" à la fin de la ligne.
 
+(eval-when (:execute :load-toplevel :compile-toplevel) (format t "~&;; loading tests : 60%"))
+
 (deftest (match ? symbole) (match (a ?)             '(a a a a))                       nil #'booleq) ;; diff
 (deftest (match ? symbole) (match (a ?)             '(a))                             t   #'booleq)
 (deftest (match ? symbole) (match (a ?)             '())                              t   #'booleq)
@@ -1208,6 +1224,8 @@ donc seule la valeur de la dernière expression de la dernière clause est renvo
 
 ;;; (? tests...)
 
+(eval-when (:execute :load-toplevel :compile-toplevel) (format t "~&;; loading tests : 70%"))
+
 ;; TODO : not, nand et nor + notation infixe (ou peut-être pas).
 
 ;; Identity par défaut.
@@ -1243,6 +1261,8 @@ donc seule la valeur de la dernière expression de la dernière clause est renvo
 (deftest (match predicats lambda) (match (? numberp (lambda (y) (> y 3))) 3)  nil #'booleq)
 
 ;; Tests de preprocess-capture
+
+(eval-when (:execute :load-toplevel :compile-toplevel) (format t "~&;; loading tests : 75%"))
 
 (deftest (match preprocess-capture)
     (pattern-match-preprocess (:x . nil))
@@ -1294,6 +1314,8 @@ donc seule la valeur de la dernière expression de la dernière clause est renvo
   '(nil nil (nil nil (nil nil a nil nil) nil (nil nil nil nil nil)) * (nil nil (nil nil b nil nil) nil (nil nil nil nil nil))))
 
 ;;;; Tests de capture (variables)
+
+(eval-when (:execute :load-toplevel :compile-toplevel) (format t "~&;; loading tests : 80%"))
 
 (deftest (match append-captures)
     (append-captures '((x . (foo bar)) (y . foo) (z . bar))
@@ -1403,6 +1425,8 @@ donc seule la valeur de la dernière expression de la dernière clause est renvo
     ()
     ((1 2) (3))))
 
+(eval-when (:execute :load-toplevel :compile-toplevel) (format t "~&;; loading tests : 90%"))
+
 (deftest (match capture labels)
     (match (labels :declarations ((:name $ :params (:param $*) :fbody _*) *) :body _*)
            '(labels ((foo (x y) (list x y))
@@ -1485,5 +1509,7 @@ donc seule la valeur de la dernière expression de la dernière clause est renvo
 (deftest (match defmatch)
     (test-match-bar 42)
   'i-m-else)
+
+(eval-when (:execute :load-toplevel :compile-toplevel) (format t "~&;; loading tests : 100%"))
 
 (provide 'match)

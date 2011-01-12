@@ -13,6 +13,7 @@
 (load "squash-lisp-1")
 (load "squash-lisp-3")
 (load "squash-lisp")
+(load "compilation")
 (load "equiv-tests")
 
 (provide 'main)
