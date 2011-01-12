@@ -265,15 +265,15 @@
                      (cdr (assoc 'other    lambda-list))
                      (cdr (assoc 'aux      lambda-list))))
 
-(defun splice-up-tagbody-1 (todo-body body result)
-  (if (endp todo-body)
+(defun splice-up-tagbody-1 (remaining-body body result)
+  (if (endp remaining-body)
       (acons nil body result)
-    (if (or (symbolp (car todo-body)) (numberp (car todo-body)))
-        (splice-up-tagbody-1 (cdr todo-body)
+    (if (or (symbolp (car remaining-body)) (numberp (car remaining-body)))
+        (splice-up-tagbody-1 (cdr remaining-body)
                              body
-                             (acons (car todo-body) body result))
-      (splice-up-tagbody-1 (cdr todo-body)
-                           (cons (car todo-body) body)
+                             (acons (car remaining-body) body result))
+      (splice-up-tagbody-1 (cdr remaining-body)
+                           (cons (car remaining-body) body)
                            result))))
 
 (defun splice-up-tagbody (body)
@@ -526,7 +526,7 @@ Mini-meval sera appellé sur des morceaux spécifiques du fichier source. Il fau
   7)
 
 (deftest (mini-meval defvar)
-    (mini-meval '(progn (defvar x 42) x) etat)
+    (mini-meval '(progn (defvar *test-var-x* 42) *test-var-x*) etat)
   42)
 
 ;; Syntaxe supplémentaire non reconnue par le standard : (#'fun param*)
@@ -541,9 +541,9 @@ Mini-meval sera appellé sur des morceaux spécifiques du fichier source. Il fau
 
 (deftest (mini-meval defvar special)
   (mini-meval '(progn
-                (defun foo1 () var)
-                (defun foo2 () (let ((var 4)) (list var (foo1))))
-                (defvar var 123)
+                (defun foo1 () *test-var-y*)
+                (defun foo2 () (let ((*test-var-y* 4)) (list *test-var-y* (foo1))))
+                (defvar *test-var-y* 123)
                 (list (foo1) (foo2)))
               etat)
   '(123 (4 4)))
@@ -568,7 +568,7 @@ Mini-meval sera appellé sur des morceaux spécifiques du fichier source. Il fau
   '((a b) ('a 'b) (a b)))
 
 (deftest (mini-meval setf setq)
-    (mini-meval '(list (defvar x 42) x (setq x 123) x) etat)
+    (mini-meval '(list (defvar *test-var-z* 42) *test-var-z* (setq *test-var-z* 123) *test-var-z*) etat)
   '(x 42 123 123))
 
 ;; TODO : tests setf
@@ -582,7 +582,7 @@ Mini-meval sera appellé sur des morceaux spécifiques du fichier source. Il fau
   '42)
 
 (deftest (mini-meval function internal)
-    (mini-meval '(progn (defvar bar (list (lambda (x) (+ x 40)) 1 2 3)) (funcall (car bar) 2)) etat)
+    (mini-meval '(progn (defvar *test-var-bar* (list (lambda (x) (+ x 40)) 1 2 3)) (funcall (car *test-var-bar*) 2)) etat)
   '42)
 
 (deftest (mini-meval call-function internal)
@@ -591,28 +591,28 @@ Mini-meval sera appellé sur des morceaux spécifiques du fichier source. Il fau
 
 (deftest (mini-meval lambda closure single-instance)
     (mini-meval '(progn
-                  (defvar foo (let ((y 1)) (cons (lambda (x) (list x y)) (lambda (z) (setq y (+ y z)) nil))))
-                  (list (funcall (car foo) 4) (funcall (cdr foo) 5) (funcall (car foo) 4))) etat)
+                  (defvar *test-var-foo* (let ((y 1)) (cons (lambda (x) (list x y)) (lambda (z) (setq y (+ y z)) nil))))
+                  (list (funcall (car *test-var-foo*) 4) (funcall (cdr *test-var-foo*) 5) (funcall (car *test-var-foo*) 4))) etat)
   '((4 1) nil (4 6)))
 
 (deftest (mini-meval lambda closure multiple-instances)
     (mini-meval '(progn
                   (defun counter (&optional (ctr 0)) (cons (lambda () ctr) (lambda (&optional (x 1)) (setq ctr (+ ctr x)) nil)))
-                  (defvar foo0  (counter))
-                  (defvar foo42 (counter 42))
+                  (defvar *test-var-foo0*  (counter))
+                  (defvar *test-var-foo42* (counter 42))
                   (list
-                   (funcall (car foo0))    ;; show 0
-                   (funcall (car foo42))   ;; show 42
-                   (funcall (cdr foo0))    ;; add 0
-                   (funcall (car foo0))    ;; show 0
-                   (funcall (cdr foo42))   ;; add 42
-                   (funcall (car foo42))   ;; show 42
-                   (funcall (car foo0))    ;; shwo 0
-                   (funcall (car foo42))   ;; show 42
-                   (funcall (cdr foo42) 6) ;; add 42 (+ 6)
-                   (funcall (cdr foo0) 5)  ;; add 0  (+ 5)
-                   (funcall (car foo42))   ;; show 42
-                   (funcall (car foo0))))  ;; show 0
+                   (funcall (car *test-var-foo0*))    ;; show 0
+                   (funcall (car *test-var-foo42*))   ;; show 42
+                   (funcall (cdr *test-var-foo0*))    ;; add 0
+                   (funcall (car *test-var-foo0*))    ;; show 0
+                   (funcall (cdr *test-var-foo42*))   ;; add 42
+                   (funcall (car *test-var-foo42*))   ;; show 42
+                   (funcall (car *test-var-foo0*))    ;; shwo 0
+                   (funcall (car *test-var-foo42*))   ;; show 42
+                   (funcall (cdr *test-var-foo42*) 6) ;; add 42 (+ 6)
+                   (funcall (cdr *test-var-foo0*) 5)  ;; add 0  (+ 5)
+                   (funcall (car *test-var-foo42*))   ;; show 42
+                   (funcall (car *test-var-foo0*))))  ;; show 0
                 etat)
   '(0 42 nil 1 nil 43 1 43 nil nil 49 6))
 

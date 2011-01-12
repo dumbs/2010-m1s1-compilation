@@ -1,9 +1,9 @@
-;; all-tests             : <module-struct>
+;; *all-tests*           : <module-struct>
 ;; <module-struct>       : (<alist-of-submodules> executed-bit variables tests)
 ;; <alist-of-submodules> : ((nom-module . <module-struct>) (nom-module2 . <module>) ...)
-(defvar all-tests (list nil nil nil nil) "Liste de tous les tests")
+(defvar *all-tests* (list nil nil nil nil) "Liste de tous les tests")
 
-(defun test-get-module (module &optional (from all-tests))
+(defun test-get-module (module &optional (from *all-tests*))
   (unless (listp module) (setq module (list module)))
   (if (endp module)
       from
@@ -19,7 +19,7 @@
 (defun test-get-variables  (module) (third  (test-get-module module)))
 (defun test-get-tests      (module) (fourth (test-get-module module)))
 
-(defun test-collect-down-tree (fn module &optional (from all-tests))
+(defun test-collect-down-tree (fn module &optional (from *all-tests*))
   (unless (listp module) (setq module (list module)))
   (if (endp module)
       (cons (funcall fn from) nil)
@@ -27,13 +27,13 @@
             (test-collect-down-tree fn (cdr module)
                                     (cdr (assoc (car module) (car from)))))))
 
-(defun test-get-variables-and-above (module &optional (from all-tests))
+(defun test-get-variables-and-above (module &optional (from *all-tests*))
   (remove-duplicates (apply #'append (mapcar #'reverse (test-collect-down-tree #'third module from))) :key #'car))
 
 (defun test-set-executed (from &optional (value t))
   (setf (second from) value))
 
-(defun test-clear-all-executed (&optional (from all-tests))
+(defun test-clear-all-executed (&optional (from *all-tests*))
   (setf (second from) nil)
   (mapcar #'test-clear-all-executed
 		  (mapcar #'cdr (first from))))
@@ -48,7 +48,7 @@
 
 (defun test-remove-module (module)
   (if (null module)
-      (setf all-tests (list nil nil nil nil))
+      (setf *all-tests* (list nil nil nil nil))
       (let ((from (test-get-module (butlast module))))
         (setf (first from)
               (delete (car (last module))
@@ -92,7 +92,7 @@
   `(test-add-variable ',module
                       (list ',name ',value)))
 
-(defvar run-tests-counter 0)
+(defvar *run-tests-counter* 0)
 
 (declaim (ftype function real-run-tests)) ;; récursion mutuelle real-run-tests / run-tests-submodules
 (defun run-tests-submodules (module-name submodules)
@@ -104,28 +104,28 @@
 (defun real-run-tests (module-name from)
   (if (second from)
       (progn
-        (format t "~&~%-~{ ~w~}~&    [Déjà vu]~&" (or module-name '(all-tests)))
+        (format t "~&~%-~{ ~w~}~&    [Déjà vu]~&" (or module-name '(*all-tests*)))
         t)
       (progn
-        (format t "~&~%>~{ ~w~}~&" (or module-name '(all-tests)))
+        (format t "~&~%>~{ ~w~}~&" (or module-name '(*all-tests*)))
         (setf (second from) t) ;; marquer comme exécuté.
         (let ((nb-fail (count-if-not #'funcall (reverse (fourth from)))))
           (if (= nb-fail 0)
               (progn
-                (incf run-tests-counter (length (fourth from)))
+                (incf *run-tests-counter* (length (fourth from)))
                 (run-tests-submodules module-name (reverse (first from))))
               (format t "Module ~w failed ~w tests. Stopping.~&" module-name nb-fail))))))
 
 (defmacro run-tests (&rest modules)
   (when (null modules) (setq modules '(nil)))
   (setq modules (substitute nil t modules))
-  (setq run-tests-counter 0)
+  (setq *run-tests-counter* 0)
   `(progn
 	 (test-clear-all-executed)
 	 (if (every #'real-run-tests
                 ',(mapcar (lambda (x) (if (listp x) x (list x))) modules)
                 ',(mapcar #'test-get-module modules))
-         (progn (format t "~a tests passed sucessfully." run-tests-counter)
+         (progn (format t "~a tests passed sucessfully." *run-tests-counter*)
                 t)
          nil)))
 
@@ -138,7 +138,7 @@
   (format t "~&~4@<~d~> ~4@<~d~> >~{ ~w~}~&"
                         (length (fourth from))
                         (count-nb-tests from)
-                        (or module-name '(all-tests)))
+                        (or module-name '(*all-tests*)))
   (mapcar (lambda (x) (real-show-tests (append module-name (list (car x))) (cdr x)))
           (first from))
   nil)

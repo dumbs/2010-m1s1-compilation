@@ -5,11 +5,11 @@
 (require 'util "util")
 (require 'squash-lisp "implementation/squash-lisp")
 
-(defvar asm-fixnum-size 32)
-(defvar asm-max-fixnum (expt 2 asm-fixnum-size))
+(defvar *asm-fixnum-size* 32)
+(defvar *asm-max-fixnum* (expt 2 *asm-fixnum-size*))
 (defun type-number (type)
   (position type '(placeholder fixnum bignum symbol string cons nil)))
-(defvar label-ctr 0)
+(defvar *label-ctr* 0)
 
 (defmacro fasm (&rest stuff)
   `(format nil ,@stuff))
@@ -18,24 +18,24 @@
 
 ;; My-compile
 
-(defvar result-asm nil)
-(defvar sections '(data code))
+(defvar *result-asm* nil)
+(defvar *sections* '(data code))
 
 (defun real-asm-block (section label body)
-  (when (not (member section sections))
+  (when (not (member section *sections*))
     (error "Section assembleur inconnue : ~w" section))
-  (push (format nil "section .~w" section) result-asm)
-  (push (format nil "~a:" label) result-asm)
-  (mapcar (lambda (x) (push x result-asm)) body)
+  (push (format nil "section .~w" section) *result-asm*)
+  (push (format nil "~a:" label) *result-asm*)
+  (mapcar (lambda (x) (push x *result-asm*)) body)
   label)
 
 (defun asm-block (section label-base &rest body)
     (real-asm-block
      section
-     (format nil "~a-~a" label-base (incf label-ctr))
+     (format nil "~a-~a" label-base (incf *label-ctr*))
      body))
 
-(defvar asm-once nil)
+(defvar *asm-once* nil)
 (defun asm-once (section label &rest body)
   (unless (member label asm-once :test #'string-equal)
     (push label asm-once)
@@ -43,26 +43,26 @@
   label)
 
 (defmacro my-compile (expr)
-  `(progn (setq result-asm nil)
+  `(progn (setq *result-asm* nil)
           (setq asm-once nil)
           (my-compile-1 `(:main ,(lisp2cli ',expr)))
-          (format nil "~&~{~%~a~}" (flatten (reverse result-asm)))))
+          (format nil "~&~{~%~a~}" (flatten (reverse *result-asm*)))))
 
 ;;; Règles de compilation
 
 (defmatch my-compile-1)
 
 ;; fixnum
-(defmatch my-compile-1 (:nil :const :num . (? numberp (< x asm-max-fixnum)))
+(defmatch my-compile-1 (:nil :const :num . (? numberp (< x *asm-max-fixnum*)))
   (asm-block 'data "fixnum-constant"
              (db-type 'fixnum)
              (fasm "db ~a" num)))
 
 ;; bignum
-(defmatch my-compile-1 (:nil :const :num . (? numberp (>= x asm-max-fixnum)))
+(defmatch my-compile-1 (:nil :const :num . (? numberp (>= x *asm-max-fixnum*)))
   (asm-block 'data "bignum-constant"
              (db-type 'bignum)
-             (let ((lst (split-bytes num asm-fixnum-size)))
+             (let ((lst (split-bytes num *asm-fixnum-size*)))
                (fasm "~{~&db ~a~}" (cons (length lst) lst)))))
 
 ;; string
@@ -117,8 +117,90 @@
    (fasm "label @~a" else-label)
    (compile si-faux)
    (fasm "label @~a" end-if-label)))
-   
-   
+
+
+
+                                        ;===========================
+                                        ;        ((( V2 *)))
+                                        ;===========================
+
+(defun compilo (expr)
+  (match
+   (top-level :main $$
+              (progn (set :name $$ (lambda :params (&rest $$) :unused (get-var $$)
+                                           (let :vars ($$*) :body _*)))*))
+   expr
+   (setq res
+         (loop
+            for n in name
+              and p in params
+              and v in vars
+              and b in body
+              collect `(label n)
+              collect `(mov ,(+ 1 (length vars)) r0)
+              collect `(call ,(syslabel reserve-stack))
+   (setq res (append `((jmp ,main)) (flatten-asm res)))
+   res))
+
+(defun squash-lisp-3-check-internal (expr)
+  "Vérifie si expr est bien un résultat valable de squash-lisp-1.
+Permet aussi d'avoir une «grammaire» du simple-lisp niveau 1.
+Attention : il y a quelques invariants qui ne sont pas présents dans cette vérification."
+  (cond-match
+   expr
+   ;; simple-tagbody est équivalent à un progn, mais nécessaire pour les macrolet.
+   (((? (member x '(progn simple-tagbody))) :body _*)
+    (every #'squash-lisp-3-check-internal body))
+   ((if :condition _ :si-vrai _ :si-faux _)
+    (and (squash-lisp-3-check-internal condition)
+         (squash-lisp-3-check-internal si-vrai)
+         (squash-lisp-3-check-internal si-faux)))
+   ((unwind-protect :body _ :cleanup _)
+    (and (squash-lisp-3-check-internal body)
+         (squash-lisp-3-check-internal cleanup)))
+   ;; tagbody-unwind-catch est équivalent à unwind-catch, mais nécessaire pour les macrolet.
+   (((? (member x '(unwind-catch tagbody-unwind-catch))) :object _ :body (progn _*) :catch-code _)
+    (and (squash-lisp-3-check-internal object)
+         (squash-lisp-3-check-internal body)
+         (squash-lisp-3-check-internal catch-code)))
+   ((unwind :object _)
+    (squash-lisp-3-check-internal object))
+   ((unwind-for-tagbody :object _ :post-unwind-code _)
+    (and (squash-lisp-3-check-internal object)
+         (squash-lisp-3-check-internal post-unwind-code)))
+   ((jump-label :name $$)
+    t)
+   ((jump :dest $$)
+    t)
+   ;; ((let ($$*) :body _)
+   ;;  (squash-lisp-3-check-internal body))
+   ;; ((lambda (&rest $$) :unused _ :body (let ($$*) _*))
+   ;;  (squash-lisp-3-check-internal body))
+   ((funcall :fun _ :params _*)
+    (every #'squash-lisp-3-check-internal (cons fun params)))
+   ((quote _)
+    t)
+   ((get-var $$)
+    t)
+   ((setq :name $$ :value _)
+    (squash-lisp-3-check-internal value))
+   ((fdefinition (quote $$))
+    t)
+   ((symbol-value (quote $$))
+    t)
+   ((set (quote $$) :value _)
+    (squash-lisp-3-check-internal value))
+   ((make-captured-var $$)
+    t)
+   ((get-captured-var $$)
+    t)
+   ((set-captured-var $$ :value _)
+    (squash-lisp-3-check-internal value))
+   (_
+    (warn "squash-lisp-3-check-internal: Assertion failed ! This should not be here : ~w" expr)
+    nil)))
+
+
 ;;; Exemples
 
 (my-compile '(1 2 3))

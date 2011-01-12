@@ -1,11 +1,3 @@
-;; "objet" VM.
-;; Instanciation :
-;;     (defvar vm (make-vm 100))
-;; Appels de méthode :
-;;     (send vm get-memory 42)
-;;     (send vm set-memory 42 5)
-;;     (send vm get-register R1)
-;;     (send vm set-register R2 (send vm get-register 42))
 (defun make-vm (size &optional debug)
   (cons (make-array size :initial-element 0)
 	`(;; Registres généraux.
@@ -58,11 +50,11 @@
 ;;TODO : Rajouter une fonction resolve pour resoudre les differents modes d'adresssage.
 ;; TODO : Penser a ajouter une table des opcodes
 
-(defvar table-operateurs
+(defvar *table-operateurs*
   '(load store move add sub mult div incr decr push pop
     jmp jsr rtn cmp jeq jpg jpp jpe jge jne nop halt))
 
-(defvar table-modes-adressage
+(defvar *table-modes-adressage*
   '(constant direct registre indexé indirect indirect-registre indirect-indexé))
 
 ;; Fonctions de manipulation de bits :
@@ -83,12 +75,12 @@
                      (cadr rest))
              (cddr rest))))
 
-(defvar nb-operateurs (length table-operateurs))
-(defvar nb-modes-adressage (length table-modes-adressage))
-(defvar nb-opcode-bytes
-  (ceiling (/ (+ (integer-length (+ 1 nb-operateurs))
+(defvar *nb-operateurs* (length *table-operateurs*))
+(defvar *nb-modes-adressage* (length *table-modes-adressage*))
+(defvar *nb-opcode-bytes*
+  (ceiling (/ (+ (integer-length (+ 1 *nb-operateurs*))
                  (* 2
-                    (integer-length (+ 1 nb-modes-adressage))))
+                    (integer-length (+ 1 *nb-modes-adressage*))))
               ;; On divise par 8 car 8 bits dans un byte.
               8)))
 
@@ -103,11 +95,11 @@
 (defun isn-encode (instruction)
   (loop
      for (operateur mode-adressage-1 valeur-1 mode-adressage-2 valeur-2) = instruction
-     return (list (append-bits (position1 operateur table-operateurs)
-                               nb-modes-adressage
-                               (position1 mode-adressage-1 table-modes-adressage) 
-                               nb-modes-adressage
-                               (position1 mode-adressage-2 table-modes-adressage))
+     return (list (append-bits (position1 operateur *table-operateurs*)
+                               *nb-modes-adressage*
+                               (position1 mode-adressage-1 *table-modes-adressage*)
+                               *nb-modes-adressage*
+                               (position1 mode-adressage-2 *table-modes-adressage*))
                   (if (eq mode-adressage-1 'registre)
                       (position1 valeur-1 (get-register-list (make-vm 1)))
                       valeur-1)

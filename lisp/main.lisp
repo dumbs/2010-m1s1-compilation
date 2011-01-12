@@ -3,7 +3,7 @@
 ;; Chargement de tous les fichiers, dans l'ordre du tri topologique
 ;; pour tous les re-charger, sans les charger deux fois.
 
-;; TODO : mettre de ** autour des variables en defvar.
+(setq *load-verbose* t)
 
 (load "util")
 (load "test-unitaire")
