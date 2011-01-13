@@ -903,7 +903,6 @@
               ,(transform-quasiquote (cdr expr))))))
 
   (defun mini-meval (expr &optional (etat (list nil nil nil)))
-    
     (cond-match
      expr
      ((quasiquote :val . _)

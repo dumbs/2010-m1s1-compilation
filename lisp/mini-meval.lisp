@@ -288,6 +288,15 @@
 ;         (etat-local etat)
 ;         (etat-special etat)))
 
+;; `
+(defvar my-quasiquote (car '`(,a)))
+
+;; ,
+(defvar my-unquote (caaadr '`(,a)))
+
+;; ,@
+(defvar my-unquote-splice (caaadr '`(,@a)))
+
 (defun transform-quasiquote (expr)
   (cond
    ;; a
@@ -298,11 +307,11 @@
     `(cons ',(car expr)
 	   ,(transform-quasiquote (cdr expr))))
    ;; (,a)
-   ((eq 'unquote (caar expr))
+   ((eq my-unquote (caar expr))
     `(cons ,(cadar expr)
 	   ,(transform-quasiquote (cdr expr))))
    ;; (,@a)
-   ((eq 'unquote-splice (caar expr))
+   ((eq my-unquote-splice (caar expr))
     (if (endp (cdr expr))
 	(cadar expr)
       `(append ,(cadar expr)
@@ -311,6 +320,7 @@
    (T
     `(cons ,(transform-quasiquote (car expr))
 	   ,(transform-quasiquote (cdr expr))))))
+
 
 #|
 Mini-meval est un meval très simple destiné à évaluer les macros et les autres directives avec eval-when :compile-toplevel.
@@ -327,10 +337,10 @@ Mini-meval sera appellé sur des morceaux spécifiques du fichier source. Il fau
     3) Sinon, c'est un appel de fonction.
   Pour permettre au code de bas niveau de redéfinir les formes spéciales, on fera d'abord la macro-expansion (étape 2).
   |#
-  
+;(print  
   (cond-match
    expr
-   ((quasiquote :val . _)
+   (((? (eq x my-quasiquote)) :val _)
     (mini-meval (transform-quasiquote val) etat))
    #| 2) Cas des macros |#
    ((:name $$ :params _*)
@@ -524,7 +534,10 @@ Mini-meval sera appellé sur des morceaux spécifiques du fichier source. Il fau
     (let ((definition (assoc-etat expr 'variable etat)))
       (if definition
           (cdr definition)
-          (mini-meval-error expr etat "Undefined variable : ~w." expr))))))
+          (mini-meval-error expr etat "Undefined variable : ~w." expr))))
+   (_
+    (error "mini-meval : this is unsupported : ~a" expr))))
+;)
 
 (defun push-functions (etat functions)
   (dolist (f functions)

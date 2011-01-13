@@ -2,7 +2,7 @@
 (load "mini-meval")
 
 (defvar tmm nil)
-(setq tmm (my-read (open "tmm.lisp")))
+(setq tmm (read (open "tmm.lisp")))
 
 (defvar e-tmm nil)
 ;(setq e-tmm (make-etat list + - cons car cdr < > <= >= = make-symbol))
@@ -64,4 +64,6 @@
 		   mload
 		   mini-meval
            make-symbol
+           print
+           endp
 ))
