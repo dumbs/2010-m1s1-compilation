@@ -452,8 +452,8 @@ Attention : il y a quelques invariants qui ne sont pas présents dans cette vér
                          (mov (register r0) (memory ,(global-label-variable name)))))
               ((make-closure :fun $$ :vars $$*)
                `(section code
-                         ;; On alloue 1+4+4 octets pour un objet closure
-                         (mov (constant ,(+ 1 4 4)) (register r1))
+                         ;; On alloue 1+4+4 octets pour un objet closure, et 9*(length vars) pour les cons.
+                         (mov (constant ,(+ 1 4 4 (* 9 (length vars)))) (register r1))
                          (push (register ip))
                          (jmp (constant ,(syslabel 'alloc-tas)))
                          ;; set type = closure-object
@@ -461,8 +461,26 @@ Attention : il y a quelques invariants qui ne sont pas présents dans cette vér
                          ;; set mot1 = adresse de la fonction
                          (mov (constant ,(global-label-variable fun)) (indexed 1 r0))
                          ;; set mot2 = on construit une liste de longueur (length vars) en la remplissant avec les valeurs des vars.
-                         ;; TODO !!!
-                         ))
+                         (mov (register r0) (register r1))
+
+                         ,@(loop
+                              for i from 0 below (- (length vars) 1)
+                              append `((add (constant 9) (register r1))
+                                       (mov (register r1) (indexed ,(+ 5 (* 9 i)) r0))))
+                         ;; nil final
+                         (mov (constant ,(syslabel nil)) (indexed ,(+ 5 (* 9 (- (length vars) 1))) r0))
+                         ,@(loop
+                              for i from 1 to (length vars)
+                              and name in vars
+                              for not-captured = (code-label (make-symbol "NOT-CAPTURED"))
+                              for assoc = (assoc name variables)
+                              unless assoc do (error "compilo-3 : make-closure sur ~a, mais n'est pas présente dans les variables:~&~a" name variables)
+                              append `((mov (indexed ,(cdr assoc) bp) (register r2))
+                                       (cmp (indirect-register r2) (constant ,(type-number 'captured-var)))
+                                       (jne (constant ,not-captured))
+                                       (mov (indexed 1 r2) (register r2))
+                                       ,not-captured
+                                       (mov (register r2) (indexed ,(+ 1 (* 9 i)) r0))))))
               ((make-captured-var :name $$)
                `(section code
                          ;; allouer 5 octets
