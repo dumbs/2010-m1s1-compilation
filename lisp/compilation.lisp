@@ -6,22 +6,39 @@
 
 ;; TODO !! ATTENTION !! Tout multiplier par 4 (octets)
 
+;; TODO : label-ctr
+
 (defvar *asm-sections* '(code data)) ;; Note : l'assembleur sera produit dans cet ordre
+
+(defvar *label-ctr* 0)
 
 (defvar *sys-labels*)
 (defun syslabel (label)
-  (assoc-or-push label (derived-symbol label) *sys-labels*))
+  `(label ,@(assoc-or-push label (list (derived-symbol label) (incf *label-ctr*)) *sys-labels*)))
+
+(defvar *code-labels*)
+(defun code-label (label)
+  `(label ,@(assoc-or-push label (list (derived-symbol label) (incf *label-ctr*)) *code-labels*)))
 
 (defvar *global-labels*)
 (defun global-label (label)
-  (assoc-or-push label (list (derived-symbol label)
-                             (derived-symbol label)
-                             (derived-symbol label))
+  (assoc-or-push label (list (list (derived-symbol label) (incf *label-ctr*))
+                             (list (derived-symbol label) (incf *label-ctr*))
+                             (list (derived-symbol label) (incf *label-ctr*)))
                  *global-labels*))
 
-(defun global-label-symbol   (label) (car (global-label label)))
-(defun global-label-variable (label) (cadr (global-label label)))
-(defun global-label-function (label) (caddr (global-label label)))
+(defun global-label-symbol   (label) `(label ,@(car (global-label label))))
+(defun global-label-variable (label) `(label ,@(cadr (global-label label))))
+(defun global-label-function (label) `(label ,@(caddr (global-label label))))
+
+(defvar *res-asm-constants* nil)
+
+(defun type-number (type)
+  (position type '(captured-var fixnum bignum symbol string cons nil)))
+
+(defun error-code (err)
+  (position err '(normal-exit
+                  unwind-for-tagbody--doit-contenir-un-jump)))
 
 (defun assembly-label-or-number-p (expr)
   (or (numberp expr)
@@ -66,8 +83,8 @@
                 asm
                 ((section (? $$ (member x *asm-sections*)) :body . @)
                  (every #'compilo-check-1 body))
-                ((label :l $$)
-                 (push l etiquettes)
+                ((label :l $$ :n $n)
+                 (push n etiquettes)
                  t)
                 (_
                  (if (assembly-instruction-p asm)
@@ -101,6 +118,152 @@
       (flatten-asm-1 asm))
     (apply #'append (mapcar (lambda (x) (cons (list 'section (car x)) (reverse (cdr x)))) res))))
 
+(defmacro with-label (l* &rest body)
+  `(let ,(mapcar (lambda (l) `(,(car l) (code-label (make-symbol (string ,(cdr l)))))) l*)
+     ,@body))
+
+(defun compilo-init (main)
+  `(section code
+            ;; TODO : variables : top-heap max-top-heap bottom-stack min-bottom-stack nil
+            ;; démarrer avec un bottom-stack = 1k (on se réserve une petite marge pour les fuites mémoire :) + push & pop temporaires).
+            ;; TODO : fonctions : (do-gc r2=taille heap nécessaire) (do-gc-redim-heap supplément stack à allouer)
+            ;; TODO : root-set-gc (la liste de symboles, principalement).
+            (push ,(syslabel nil)) ;; closure
+            (push ,(syslabel nil)) ;; paramètres
+            (push (register ip))
+            (jmp ,(code-label main))
+            ,(syslabel 'end-halt)
+            (mov (constant ,(error-code 'normal-exit)) (register r0))
+            (halt))) ;; TODO : dépendant de vm / os
+
+(defun compilo-alloc-tas (size)
+  "«returns» allocated adress in r0, clobbers r1"
+  (with-label ((l-do-gc 'jump-dest-do-gc)
+               (l-alloc))
+    `(section code
+              ,(syslabel 'alloc-tas)
+              (push (register r2))
+              (mov (memory ,(syslabel 'top-heap)) (register r0))
+              (mov (register r0) (register r1))
+              (add (constant ,size) (register r1))
+              (mov (memory ,(syslabel 'max-top-heap)) (register r2))
+              (cmp (register r1) (register r2))
+              (jpp (constant ,l-alloc))
+              ,l-do-gc
+              (mov (constant ,size) (register r2))
+              (push ip)
+              (jmp (constant ,(syslabel do-gc)))
+              ,l-alloc
+              (mov (register r1) (memory ,(syslabel 'top-heap)))
+              (pop (register r2))
+              (pop (register r1))
+              (jmp (register r1)))))
+
+(defun compilo-alloc-pile (size)
+  "«returns» nothing, clobbers r0"
+  (with-label ((l-do-gc 'jump-dest-do-gc)
+               (l-alloc))
+    `(section code
+              ,(syslabel 'alloc-pile)
+              (push (register r1))
+              (push (register r2))
+              (mov (memory ,(syslabel 'bottom-stack)) (register r0))
+              (mov (register r0) (register r1))
+              (sub (constant ,size) (register r1)) ;; TODO : vérifier le sens du sub.
+              (mov (memory ,(syslabel 'min-bottom-stack)) (register r2))
+              (cmp (register r1) (register r2))
+              (jpg (constant ,l-alloc))
+              ,l-do-gc
+              (mov (constant ,size) (register r2))
+              (push ip)
+              (jmp (constant ,(syslabel do-gc-redim-heap)))
+              ,l-alloc
+              (mov (register r1) (memory ,(syslabel 'top-heap)))
+              (pop (register r2))
+              (pop (register r1))
+              (pop (register r0))
+              (jmp (register r0)))))
+
+(defun db-type (type)
+  `(db (constant ,(type-number type))))
+
+(defvar *asm-fixnum-size* 32)
+(defvar *asm-max-fixnum* (- (expt 2 *asm-fixnum-size*) 1))
+(defun compilo-encode-constant (val)
+  ;; TODO !
+  (cond
+   ;; fixnum
+    ((and (numberp val) (<= val *asm-max-fixnum*))
+     (with-label ((l 'fixnum-constant))
+       (push (section data
+                      ,l
+                      (db-type 'fixnum)
+                      (dl (constant num)))
+             *res-asm-constants*)
+       l))
+   
+   ;; bignum
+   ((and (numberp val) (> val *asm-max-fixnum*))
+    (with-label ((l 'bignum-constant))
+      (push (section data
+                     ,l
+                     (db-type 'bignum)
+                     ,@(let ((lst (split-bytes val (+ 1 *asm-fixnum-size*))))
+                            (mapcar (lambda (x) `(dl (constant ,x)))
+                                    (cons (length lst) lst))))
+            *res-asm-constants*)
+      l))
+   
+   ;; string
+   ((stringp val)
+    (with-label ((l 'string-constant))
+      (push (section data
+                     ,l
+                     (db-type 'string)
+                     (dl (constant ,(length val)))
+                     ,@(map 'list (lambda (x) `(dl (constant ,(char-code x)))) val))
+            *res-asm-constants*)
+      l))
+   
+   ;; nil
+   ((null val)
+    (syslabel nil))
+   
+   ;; symbol
+   ((symbolp val)
+    (let ((l (global-label-symbol val)))
+      (push (section data
+                     ,l
+                     (db-type 'symbol)
+                     (dl (constant ,(compilo-encode-constant (string val)))) ;; pointeur vers nom du symbole
+                     (dl (constant ,(syslabel nil))) ;; intern ? ;; TODO !!!!!!!
+                     (dl (constant ,(syslabel nil))) ;; fdefinition ;; TODO
+                     (dl (constant ,(syslabel nil))) ;; global value
+                     (dl (constant ,(syslabel nil)))) ;; plist
+            *res-asm-constants*)
+      l))
+   
+   ;; array
+   ((arrayp val)
+    (with-label ((l 'cons-cell-constant))
+      (push (section data
+                     ,l
+                     (db-type 'array)
+                     (dl (constant ,(length val)))
+                     ,@(map 'list (lambda (x) `(dl (constant ,(compilo-encode-constant x)))) val))
+            *res-asm-constants*)
+      l))
+   
+   ;; cons
+   ((consp val)
+    (with-label ((l 'cons-cell-constant))
+      (push (section data
+                     ,l
+                     (db-type 'cons)
+                     (dl (constant ,(compilo-encode-constant (car val))))
+                     (dl (constant ,(compilo-encode-constant (cdr val)))))
+            *res-asm-constants*)
+      l))))
 
 (defun compilo-2 (expr variables)
   "Vérifie si expr est bien un résultat valable de squash-lisp-1.
@@ -111,46 +274,139 @@ Attention : il y a quelques invariants qui ne sont pas présents dans cette vér
               expr
               ;; simple-tagbody est équivalent à un progn, mais nécessaire pour les macrolet.
               (((? (member x '(progn simple-tagbody))) :body _*)
-               `(section code
-                         ,@(mapcar #'compilo-2 body)))
+               `(section code ,@(mapcar #'compilo-3 body)))
               ((if :condition _ :si-vrai _ :si-faux _)
-               (and (compilo-2 condition)
-                    (compilo-2 si-vrai)
-                    (compilo-2 si-faux)))
+               (with-label ((after-if 'after-if) (after-else 'after-else))
+                 `(section code
+                           ,(compilo-3 condition)
+                           (cmp (register r0) (constant ,(syslabel nil)))
+                           (jeq ,after-if)
+                           ,(compilo-3 si-vrai)
+                           (jmp ,after-else)
+                           ,after-if
+                           ,(compilo-3 si-faux)
+                           ,after-else)))
               ((unwind-protect :body _ :cleanup _)
-               (and (compilo-2 body)
-                    (compilo-2 cleanup)))
+               (with-label ((l-protect-code 'protect-code) (l-after-protect-code 'after-protect-code))
+                 `(section code
+                           (push (constant ,l-protect-code))
+                           (push (constant ,(syslabel 'marker-unwind-protect)))
+                           ,(compilo-3 body)
+                           (pop (register r2))
+                           (pop (register r2))
+                           (jmp (constant ,l-after-protect-code))
+                           ,l-protect-code
+                           ,(compilo-3 cleanup)
+                           (jmp (constant ,(syslabel 'start-unwind)))
+                           ,l-after-protect-code)))
               ;; tagbody-unwind-catch est équivalent à unwind-catch, mais nécessaire pour les macrolet.
               (((? (member x '(unwind-catch tagbody-unwind-catch))) :object _ :body (progn _*) :catch-code _)
-               (and (compilo-2 object)
-                    (compilo-2 body)
-                    (compilo-2 catch-code)))
+               (with-label ((l-catch-code 'catch-code) (l-after-catch-code 'after-catch-code))
+                 `(section code
+                           ;; TODO !!! prendre en compte ces push dans la taille de l'environnement !
+                           (push (constant ,l-catch-code))
+                           ,(compilo-3 object)
+                           (push (register r0))
+                           (push (constant ,(syslabel 'marker-unwind-destination)))
+                           ,(compilo-3 body)
+                           (pop (register r2))
+                           (pop (register r2))
+                           (pop (register r2))
+                           (jmp (constant ,l-after-catch-code))
+                           ,l-catch-code
+                           ,(compilo-3 catch-code)
+                           ,l-after-catch-code)))
               ((unwind :object _)
-               (compilo-2 object))
+               `(section code
+                         ,(compilo-3 object)
+                         (push (register ip))
+                         (jmp (constant ,(syslabel 'find-unwind-destination))) ;; renvoie le haut de la pile dans r1. TODO ATTENTION À LA PLACE PRISE PAR LE PUSH
+                         (mov (register sp) (memory ,(syslabel 'singleton-unwind-destination)))
+                         (mov (register r1) (register sp)) ;; On remonte en haut de la pile
+                         (jmp (constant ,(syslabel start-unwind)))))
+              
               ((unwind-for-tagbody :object _ :post-unwind-code _)
-               (and (compilo-2 object)
-                    (compilo-2 post-unwind-code)))
+               (with-label ((l-post-unwind-code 'post-unwind-code))
+                 `(section code
+                           (compilo-3 object)
+                           (push (register ip))
+                           (jmp (constant ,(syslabel 'find-unwind-destination))) ;; renvoie le haut de la pile dans r1. TODO ATTENTION À LA PLACE PRISE PAR LE PUSH
+                           (mov (constant ,l-post-unwind-code) (memory ,(syslabel 'singleton-post-unwind-code)))
+                           (add (constant 3) (register sp)) ;; On "re-push" l'adresse de la cible, l'objet et le marqueur, mettre 2 au lieu de 3 si on n'a pas de marqueur.
+                           (mov (register sp) (memory ,(syslabel 'singleton-unwind-destination)))
+                           (mov (register r1) (register sp) ;; On remonte en haut de la pile
+                           (jmp (constant ,(syslabel 'start-unwind)))
+                           ,l-post-unwind-code
+                           ,(compilo-3 post-unwind-code) ;; DOIT contenir un jump !
+                           (mov (constant ,(error-code 'unwind-for-tagbody--doit-contenir-un-jump)) r0) ;; valeur de retour pour la vm
+                           (halt))))) ;; Sinon contenait pas de jump, on quite "brutalement"
               ((jump-label :name $$)
-               t)
+               `(section code ,(code-label name)))
               ((jump :dest $$)
-               t)
+               `(section code (jmp ,(code-label name))))
               ((funcall :fun _ :params _*)
-               ;; calculer les paramètres un à un
-               ;; à chaque fois, ajouter leur valeur dans une liste, par chirurgie svp.
-               ;; maintenir quelque part dans la pile un pointeur vers le premier paramètre
-               ;; et un pointeur vers le dernier cons de la liste de paramètres
-               ;; calculer la fonction
-               ;; push ip
-               ;; jmp r0
+               `(section code
+                         (push (register ip))
+                         (jmp (constant ,(syslabel 'alloc-cons)))
+                         
+                         ;; Note : on pourrait tout allouer d'un coup, et setter tout la liste avec des nil immédiatement après.
+                         
+                         ;; first param :
+                         (compilo-3 param-1)
+                         ;; push r0 (= value)
+                         ;; alloc 1+4+4 bytes of memory for a cons
+                         ;; set cons type byte :
+                         ;;   movb constant r0
+                         ;; set car of new cons to value :
+                         ;;   pop r2 = value
+                         ;;   mov r2 r0[+1]
+                         ;; allways set cdr to nil, in case the gc came by :
+                         ;;   mov constant-nil r0[+5]
+                         ;; mov r0 r1
+                         
+                         ;; r1 = old-cons
+                         ;; push r1
+                         (compilo-3 param-i)
+                         ;; push r0 (= value)
+                         ;; alloc 1+4+4 bytes of memory for a cons
+                         ;; set cons type byte :
+                         ;;   movb constant r0
+                         ;; set cdr of old last to new cons :
+                         ;;   pop r2 = value
+                         ;;   pop r1 = old-cons
+                         ;;   mov r0 r2[+5]
+                         ;; set car of new cons to value :
+                         ;;   mov r2 r0[+1]
+                         ;; allways set cdr to nil, in case the gc came by :
+                         ;;   mov constant-nil r0[+5]
+                         ;; mov r0 r1
+
+                         ;; On calcule la fonction :
+                         ;;  push r1
+                         (compilo-3 fun)
+                         
+                         ;; TODO : gérer la closure
+                         
+                         ;; push ip
+                         ;; jmp r0
+                         
+
+                         ;; calculer les paramètres un à un
+                         ;; à chaque fois, ajouter leur valeur dans une liste, par chirurgie svp.
+                         ;; maintenir quelque part dans la pile un pointeur vers le premier paramètre
+                         ;; et un pointeur vers le dernier cons de la liste de paramètres
+                         ;; calculer la fonction
+                         ;; push ip
+                         ;; jmp r0
+                         
                (every #'compilo-2 (cons fun params)))
-              ((quote _)
-               ;; récupérer le code de l'ancien compilo
-               t)
+              ((quote :val _)
+               (compilo-encode-constant val))
               ((get-var :name $$)
                `(section code (mov (indexed ,(cdr (assoc name variables)) (register bp)) (register r0))))
               ((setq :name $$ :value _)
                `(section code
-                         ,(compilo-2 value)
+                         ,(compilo-3 value)
                          (mov (register r0) (indexed ,(cdr (assoc name variables)) (register bp)))))
               ((fdefinition (quote :name $$))
                `(section code (mov (memory ,(global-label-function name)) (register r0))))
@@ -158,25 +414,34 @@ Attention : il y a quelques invariants qui ne sont pas présents dans cette vér
                `(section code (mov (memory ,(global-label-variable name)) (register r0))))
               ((set (quote :name $$) :value _)
                `(section code
-                         ,(compilo-2 value)
+                         ,(compilo-3 value)
                          (mov (register r0) (memory ,(global-label-variable name)))))
-              ((make-captured-var :name $$)
-               ;; allouer 5 octets du tas
-               ;; si nécessaire gc
-               ;; affecter le type captured-var au premier
-               ;; affecter le pointeur nil aux 4 suivants
+              ((make-closure :fun $$ :vars $$*)
+               ;; On alloue 5 octets pour un objet closure
+               ;; set type = closure-object
+               ;; set valeur = on construit une liste de longueur (length vars) en la remplissant avec les valeurs des vars.
                t)
+              ((make-captured-var :name $$)
+               `(section code
+                         ;; allouer 5 octets
+                         ,(compilo-alloc-tas 5) ;; adresse dans r0
+                         ;; affecter le pointeur à la variable
+                         (mov (register r0) (indexed ,(cdr (assoc name variables)) (register bp)))
+                         ;; affecter le type captured-var au premier
+                         (movb (constant ,(type-number 'captured-var)) (indirect-register r0))
+                         ;; affecter le pointeur nil aux 4 suivants
+                         (mov (constant ,(global-label-symbol nil)) (indirect-register r0))))
               ((get-captured-var :name $$)
                `(section code
                          (mov (indexed ,(cdr (assoc name variables)) (register bp)) (register r0))
                          (mov (indexed 1 (register r0)) (register r0)))) ;; Pas de test de type
               ((set-captured-var :name $$ :value _)
                `(section code
-                         ,(compilo-2 value)
+                         ,(compilo-3 value)
                          (mov (indexed ,(cdr (assoc name variables)) (register bp)) (register r1))
                          (mov (register r0) (indexed 1 (register r1)))))
               (_
-               (warn "compilo-2: Assertion failed ! This should not be here : ~w" expr)
+               (warn "compilo-3: Assertion failed ! This should not be here : ~w" expr)
                nil))))
     (compilo-3 expr)))
 
@@ -192,7 +457,7 @@ Attention : il y a quelques invariants qui ne sont pas présents dans cette vér
       and body in bodys
       for nbvars = (length var)
       collect `(section code
-                        (label name)
+                        ,(code-label name)
                         ;; +1 pour la closure     (non)
                         ;; +1 pour les paramètres (non)
                         ;; +1 pour le bp
@@ -206,7 +471,7 @@ Attention : il y a quelques invariants qui ne sont pas présents dans cette vér
                         (add (constant ,nbvars) (register sp))
                         (push (register r0)) ;; Permet à unwind de sauter directement jusqu'au begin-frame.
                         (push (constant ,(syslabel 'marker-end-frame)))
-                        (jmp (constant (label ,(syslabel 'reserve-stack)))) ;; lance le gc pour re-dimensionner le tas si nécessaire / ou bien erreur si dépassement.
+                        (jmp (constant ,(syslabel 'reserve-stack))) ;; lance le gc pour re-dimensionner le tas si nécessaire / ou bien erreur si dépassement.
                         (sub (constant ,nbvars) (register sp)) ;; TODO ! vérifier le sens du sub
                         ,(compilo-2 body (loop
                                             with hole = (make-symbol "HOLE")
@@ -222,17 +487,15 @@ Attention : il y a quelques invariants qui ne sont pas présents dans cette vér
       into res
       finally (return
                 `(section code
-                          (push ,(syslabel nil)) ;; closure
-                          (push ,(syslabel nil)) ;; paramètres
-                          (push (register ip))
-                          (jmp main)
-                          (label ,(syslabel 'end-halt))
-                          (mov (constant 0) (register r0)) ;; valeur de retour : 0 = success
-                          (halt) ;; TODO : dépendant de vm / os
-                          ,@res)))))
+                          ,(compilo-init main)
+                          ,res
+                          ,@(reverse *res-asm-constants*))))))
 
 (defun compilo (expr)
+  (setq *label-ctr* 0)
   (setq *sys-labels* nil)
+  (setq *global-labels* nil)
+  (setq *code-labels* nil)
   (flatten-asm (compilo-1 (squash-lisp-1+3 expr))))
 
 #|
@@ -311,12 +574,6 @@ marker-end-frame
 
 
 #|
-(defvar *asm-fixnum-size* 32)
-(defvar *asm-max-fixnum* (expt 2 *asm-fixnum-size*))
-(defun type-number (type)
-  (position type '(placeholder fixnum bignum symbol string cons nil)))
-(defvar *label-ctr* 0)
-
 (defmacro fasm (&rest stuff)
   `(format nil ,@stuff))
 (defun db-type (type)
@@ -357,39 +614,6 @@ marker-end-frame
 ;;; Règles de compilation
 
 (defmatch my-compile-1)
-
-;; fixnum
-(defmatch my-compile-1 (:nil :const :num . (? numberp (< x *asm-max-fixnum*)))
-  (asm-block 'data "fixnum-constant"
-             (db-type 'fixnum)
-             (fasm "db ~a" num)))
-
-;; bignum
-(defmatch my-compile-1 (:nil :const :num . (? numberp (>= x *asm-max-fixnum*)))
-  (asm-block 'data "bignum-constant"
-             (db-type 'bignum)
-             (let ((lst (split-bytes num *asm-fixnum-size*)))
-               (fasm "~{~&db ~a~}" (cons (length lst) lst)))))
-
-;; string
-(defmatch my-compile-1 (:nil :const :str . (? stringp))
-  (asm-block 'data "string-constant"
-             (db-type 'string)
-             (fasm "db ~a" (length str))
-             (fasm "~{~&db ~a~}" (map 'list #'char-code str))))
-
-;; symbol
-(defmatch my-compile-1 (:nil :const :sym . (? symbolp))
-  (asm-once 'data (format nil "symbol-~w" sym)
-             (db-type 'symbol)
-             (fasm "db @~a" (my-compile-1 (string sym)))))
-
-;; cons
-(defmatch my-compile-1 (:nil :const . (:car _ :cdr . _))
-  (asm-block 'data "cons-cell-constant"
-             (db-type 'cons)
-             (fasm "db @~a" (my-compile-1 `(:const . ,car)))
-             (fasm "db @~a" (my-compile-1 `(:const . ,cdr)))))
 
 (defun compile-get-val (cli)
   (if (match (:nil :const . _) cli)

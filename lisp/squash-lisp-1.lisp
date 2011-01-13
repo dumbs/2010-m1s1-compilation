@@ -211,7 +211,7 @@
 
      ;; Transformation des (let[*] (var1 var2 var3) …) en (let[*] ((var1 nil) (var2 nil) (var3 nil)) …)
      ((:type (? or (eq x 'let) (eq x 'let*)) :bindings (? and consp (find-if #'symbolp x)) :body . _)
-      (transform `(,type ,(mapcar (lambda (b) (if (consp b) b `(b nil))) bindings) ,@body)))
+      (transform `(,type ,(mapcar (lambda (b) (if (consp b) b `(,b nil))) bindings) ,@body)))
      
      ((super-let :name ($$*) :stuff _*)
       (setq name (mapcar (lambda (x) (cons x (derived-symbol x))) name))
@@ -554,6 +554,7 @@ jmp @start-unwind
 @after-protect-code
 
 (unwind-for-tagbody object post-unwind-code) est compilé ainsi :
+[compile object]
 jsr @find-unwind-destination
 mov [immediate]@post-unwind-code @singleton-post-unwind-code
 add 3 sp                ;; On "re-push" l'adresse de la cible, l'objet et le marqueur, mettre 2 au lieu de 3 si on n'a pas de marqueur.
