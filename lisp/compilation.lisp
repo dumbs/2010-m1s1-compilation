@@ -6,7 +6,7 @@
 
 ;; TODO !! ATTENTION !! Tout multiplier par 4 (octets)
 
-;; TODO : label-ctr
+;; TODO ! chercher "sens de la soustraction" dans ce fichier
 
 (defvar *asm-sections* '(code data)) ;; Note : l'assembleur sera produit dans cet ordre
 
@@ -126,7 +126,8 @@
   `(section code
             ;; TODO : variables : top-heap max-top-heap bottom-stack min-bottom-stack nil
             ;; démarrer avec un bottom-stack = 1k (on se réserve une petite marge pour les fuites mémoire :) + push & pop temporaires).
-            ;; TODO : fonctions : (do-gc r2=taille heap nécessaire) (do-gc-redim-heap supplément stack à allouer)
+            ;; TODO : fonctions : (do-gc param;r0=taille heap nécessaire, doit conserver tous les registres à l'identique.)
+            ;; TODO : fonctions : (do-gc-redim-heap param:r0=supplément stack à allouer (au minimum). Doit préserver r1 (ou bien on peut affecter bottom-stack dans cette fonction))
             ;; TODO : root-set-gc (la liste de symboles, principalement).
             (push ,(syslabel nil)) ;; closure
             (push ,(syslabel nil)) ;; paramètres
@@ -137,48 +138,45 @@
             (halt))) ;; TODO : dépendant de vm / os
 
 (defun compilo-alloc-tas (size)
-  "«returns» allocated adress in r0, clobbers r1"
+  "param:r1=taille à allouer, «returns» allocated adress in r0, clobbers r1"
   (with-label ((l-do-gc 'jump-dest-do-gc)
                (l-alloc))
     `(section code
               ,(syslabel 'alloc-tas)
               (push (register r2))
               (mov (memory ,(syslabel 'top-heap)) (register r0))
-              (mov (register r0) (register r1))
-              (add (constant ,size) (register r1))
+              (add (register r1) (register r0))
               (mov (memory ,(syslabel 'max-top-heap)) (register r2))
-              (cmp (register r1) (register r2))
+              (cmp (register r0) (register r2))
               (jpp (constant ,l-alloc))
               ,l-do-gc
-              (mov (constant ,size) (register r2))
               (push ip)
               (jmp (constant ,(syslabel do-gc)))
               ,l-alloc
-              (mov (register r1) (memory ,(syslabel 'top-heap)))
+              (mov (register r0) (memory ,(syslabel 'top-heap)))
+              (sub (register r1) (register r0)) ;; sens de la soustraction
               (pop (register r2))
               (pop (register r1))
               (jmp (register r1)))))
 
 (defun compilo-alloc-pile (size)
-  "«returns» nothing, clobbers r0"
+  "param:r0=size, «returns» nothing, clobbers r0"
   (with-label ((l-do-gc 'jump-dest-do-gc)
                (l-alloc))
     `(section code
               ,(syslabel 'alloc-pile)
               (push (register r1))
               (push (register r2))
-              (mov (memory ,(syslabel 'bottom-stack)) (register r0))
-              (mov (register r0) (register r1))
-              (sub (constant ,size) (register r1)) ;; TODO : vérifier le sens du sub.
+              (mov (memory ,(syslabel 'bottom-stack)) (register r1))
+              (sub (register r0) (register r1)) ;; sens de la soustraction
               (mov (memory ,(syslabel 'min-bottom-stack)) (register r2))
               (cmp (register r1) (register r2))
               (jpg (constant ,l-alloc))
               ,l-do-gc
-              (mov (constant ,size) (register r2))
               (push ip)
               (jmp (constant ,(syslabel do-gc-redim-heap)))
               ,l-alloc
-              (mov (register r1) (memory ,(syslabel 'top-heap)))
+              (mov (register r1) (memory ,(syslabel 'bottom-stack)))
               (pop (register r2))
               (pop (register r1))
               (pop (register r0))
@@ -348,71 +346,78 @@ Attention : il y a quelques invariants qui ne sont pas présents dans cette vér
               ;; TODO : cas particulier funcall cdr
               ((funcall :fun _ :params _*)
                `(section code
-                         (push (register ip))
-                         (jmp (constant ,(syslabel 'alloc-cons)))
-                         
+                         ;; Sommaire :
+                         ;; - calculer les paramètres un à un
+                         ;; - à chaque fois, ajouter leur valeur dans une liste, par chirurgie svp.
+                         ;; - maintenir quelque part dans la pile un pointeur vers le premier paramètre
+                         ;; - et un pointeur vers le dernier cons de la liste de paramètres
+                         ;; - calculer la fonction
+                         ;; - push ip
+                         ;; - jmp r0
+
                          ;; Note : on pourrait tout allouer d'un coup, et setter tout la liste avec des nil immédiatement après.
+                         ;; TODO : si aucun paramètre
                          
-                         ;; first param :
-                         (compilo-3 param-1)
-                         ;; push r0 (= value)
+                         ;; premier paramètre :
+                         ,(compilo-3 (car params))
+                         (push (register r0)) ;; (r0 vaut la valeur du paramètre)
                          ;; alloc 1+4+4 bytes of memory for a cons
+                         (mov (constant ,(+ 1 4 4)) (register r1))
+                         (push (register ip))
+                         (jmp (constant ,(syslabel 'alloc-tas)))
+                         ;; On push la liste des paramètres (encore incomplète)
+                         (push (register r0))
                          ;; set cons type byte :
-                         ;;   movb constant r0
+                         (movb (constant ,(type-number 'cons)) (indirect-register r0))
                          ;; set car of new cons to value :
-                         ;;   pop r2 = value
-                         ;;   mov r2 r0[+1]
+                         (pop (register r2)) ;; r2 := value
+                         (mov (register r2) (indexed 1 r0))
                          ;; allways set cdr to nil, in case the gc came by :
-                         ;;   mov constant-nil r0[+5]
-                         ;; mov r0 r1
-                         
-                         ;; r1 = old-cons
-                         ;; push r1
-                         (compilo-3 param-i)
-                         ;; push r0 (= value)
-                         ;; alloc 1+4+4 bytes of memory for a cons
-                         ;; set cons type byte :
-                         ;;   movb constant r0
-                         ;; set cdr of old last to new cons :
-                         ;;   pop r2 = value
-                         ;;   pop r1 = old-cons
-                         ;;   mov r0 r2[+5]
-                         ;; set car of new cons to value :
-                         ;;   mov r2 r0[+1]
-                         ;; allways set cdr to nil, in case the gc came by :
-                         ;;   mov constant-nil r0[+5]
-                         ;; mov r0 r1
-                         
+                         (mov (constant ,(syslabel nil)) (indexed 5 r0))
+                         ;; le cons courant devient l'ancien
+                         (mov (register r0) (register r1))
+
+                         ,@(loop
+                              for i in (cdr params)
+                              append `((push (register r1)) ;; (r1 vaut old-cons)
+                                       (compilo-3 param-i)
+                                       (push (register r0)) ;; (r0 vaut la valeur du paramètre)
+                                       ;; alloc-tas 1+4+4 bytes of memory for a cons
+                                       (mov (constant ,(+ 1 4 4)) r1)
+                                       (push (register ip))
+                                       (jmp (constant ,(syslabel 'alloc-tas)))
+                                       ;; set cons type byte :
+                                       (movb (constant ,(type-number 'cons)) (indirect-register r0))
+                                       ;; set cdr of old last to new cons :
+                                       (pop (register r2)) ;; r2 := value
+                                       (pop (register r1)) ;; r1 := old-cons
+                                       (mov (register r0) (indexed 5 r2))
+                                       ;; set car of new cons to value :
+                                       (mov (register r2) (indexed 1 r0))
+                                       ;; allways set cdr to nil, in case the gc came by :
+                                       (mov (constant ,(syslabel 'nil)) (indexed 5 r0))
+                                       ;; le cons courant devient l'ancien
+                                       (mov (register r0) (register r1))))
+                                       
                          ;; On calcule la fonction :
-                         ;;  push r1
                          (compilo-3 fun)
 
                          ;; Facultatif :
                          ;; On teste si le premier octet de *r0 est bien closure-object (sait-on jamais…)
-                         ;;   mov [r0] r1
-                         ;;   cmp (constante ...) r1
-                         ;;   jneq (syslabel invalid closure object)
+                         (mov (indirect-register r0) (register r1))
+                         (cmp (constant ,(type-number 'closure-object)) (register r1))
+                         (jneq (constant ,(syslabel 'invalid-closure-object)))
                          ;; Fin facultatif
                          
                          ;; On récupère la closure
-                         ;;   mov r0[+5] r1
-                         ;;   push r1 ;; on push la closure
+                         (mov (indexed 5 r0) (register r1))
+                         (push (register r1)) ;; on push la closure (2e paramètre)
                          ;;   TODO !!! la closure et les paramètres sont dans le mauvais ordre ! corriger ça dans le préambule de la fonction
                          ;; On récupère la fonction
-                         ;;   mov r0[+1] r0
+                         (mov (indexed 1 r0) (register r0))
                          ;; On appelle la fonction
-                         ;;   push ip
-                         ;;   jmp r0
-                         
-
-                         ;; calculer les paramètres un à un
-                         ;; à chaque fois, ajouter leur valeur dans une liste, par chirurgie svp.
-                         ;; maintenir quelque part dans la pile un pointeur vers le premier paramètre
-                         ;; et un pointeur vers le dernier cons de la liste de paramètres
-                         ;; calculer la fonction
-                         ;; push ip
-                         ;; jmp r0
-                         
+                         (push (register ip))
+                         (jmp (register r0))))
                (every #'compilo-2 (cons fun params)))
               ((quote :val _)
                (compilo-encode-constant val))
@@ -439,7 +444,9 @@ Attention : il y a quelques invariants qui ne sont pas présents dans cette vér
               ((make-captured-var :name $$)
                `(section code
                          ;; allouer 5 octets
-                         ,(compilo-alloc-tas 5) ;; adresse dans r0
+                         (mov (constant 5) (register r0))
+                         (push ip)
+                         (jmp (constant ,(syslabel 'alloc-tas))) ;; => adresse dans r0
                          ;; affecter le pointeur à la variable
                          (mov (register r0) (indexed ,(cdr (assoc name variables)) (register bp)))
                          ;; affecter le type captured-var au premier
@@ -473,8 +480,9 @@ Attention : il y a quelques invariants qui ne sont pas présents dans cette vér
       for nbvars = (length var)
       collect `(section code
                         ,(code-label name)
-                        ;; +1 pour la closure     (non)
                         ;; +1 pour les paramètres (non)
+                        ;; +1 pour la closure     (non)
+                        ;; TODO : + autant que nécessaire pour les différents funcall et unwind
                         ;; +1 pour le bp
                         ;; +1 pour le begin-frame
                         ;; +1 pour le marker-end-frame
@@ -490,7 +498,7 @@ Attention : il y a quelques invariants qui ne sont pas présents dans cette vér
                         (sub (constant ,nbvars) (register sp)) ;; TODO ! vérifier le sens du sub
                         ,(compilo-2 body (loop
                                             with hole = (make-symbol "HOLE")
-                                            for v in (append (list closure-name params-name hole hole hole) var)
+                                            for v in (append (list params-name closure-name hole hole hole) var)
                                             for i upfrom -2
                                             collect `(,var . ,i)))
                         (add (constant ,nbvars) (register sp))
