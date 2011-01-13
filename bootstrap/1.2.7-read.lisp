@@ -1,6 +1,6 @@
 ;; TODO : ne gère pas les échappements "foo\"bar" etc. ni les #...
 
-(defun mread (input-stream)
+(defun my-read (input-stream)
   (let ((result-stack '())
         (result nil)
         (char nil)
@@ -20,17 +20,13 @@
                (setq char (read-char input-stream nil nil))))
       (tagbody
        start
-         (print 'start)
          (get-char)
          (push 'end stack)
          (go read-any)
          
        read-any
-         (print 'read-any)
          (push 'end-read-any stack)
        read-any-loop
-         (print 'read-any-loop)
-         (print char)
          (cond
            ((not char)       (go end-of-file))
            ((char= char #\() (go read-list))
@@ -38,6 +34,7 @@
            ((char= char #\') (go read-quote))
            ((char= char #\;) (push 'read-any-loop stack) (go read-comment))
            ((char= char #\") (go read-string))
+           ((member char '(#\0 #\1 #\2 #\3 #\4 #\5 #\6 #\7 #\8 #\9) :test #'char=) (go read-number))
            ((char= char #\#) (go read-sharp))
            ((char= char #\`) (go read-backquote))
            ((char= char #\,) (go read-unquote))
@@ -45,35 +42,29 @@
            ((char= char #\newline) (get-char) (go read-any-loop))
            (t                (go read-symbol))) ;; \ and | and : fall into this.
        end-read-any
-         (print 'end-read-any)
          (go return)
          
        read-list
-         (print 'read-list)
          (push-result)
          (get-char)
        read-list-loop
-         (print 'read-list-loop)
-         (print char)
-         (print result)
+         (when (or (char= char #\ ) (char= char #\newline))
+           (get-char)
+           (go read-list-loop))
          (when (or (not char) (char= char #\)))
            (go end-read-list-loop))
-         (print char)
          (push 'read-list-loop stack)
          (go read-any)
        end-read-list-loop
-         (print 'end-read-list-loop)
          (when (not char)
            (error "EOF while reading a list"))
          (get-char)
-         (format t "~&::~a" result)
          (push (reverse result) (car result-stack))
          (pop-result)
          ;(get-char)
          (go return)
          
        read-quote
-         (print 'read-quote)
          (push-result)
          (push-val 'quote)
          (get-char)
@@ -89,7 +80,6 @@
 
        read-comment
        read-comment-loop
-         (print 'read-cpmment-loop)
          (get-char)
          (unless (or (not char) (char= char #\newline))
            (go read-comment-loop))
@@ -98,7 +88,6 @@
          (go return)
          
        read-string
-         (print 'read-symbol)
          (get-char)
          (push-result)
          (go read-string-loop-start)
@@ -114,29 +103,44 @@
          (push (format nil "~{~a~}" (reverse result)) (car result-stack))
          (pop-result)
          (go return)
+
+       read-number
+         (push 'end-read-number stack)
+         (go read-symbol)
+       end-read-number
+         (setf (car result) (parse-integer (string (car result))))
+         (go return)
          
        read-sharp
          (get-char)
          (cond
           ((char= char #\') (go read-quote-function))
+          ((char= char #\\) (go read-sharp-char))
           (t (error "bootstrap : read : niy : syntax #~a not implemented yet." char)))
          
        read-quote-function
-         (print 'read-quote-syntax)
          (push-result)
          (push-val 'function)
          (get-char)
          (go read-quotes-content)
+
+       read-sharp-char
+         (get-char)
+         (push 'end-read-sharp-char stack)
+         (go read-symbol)
+         end-read-sharp-char
+         (case (car result)
+           (newline (setf (car result) #\newline))
+           (otherwise (setf (car result) (char (string (car result)) 0))))
+         (go return)
          
        read-backquote
-         (print 'read-quote)
          (push-result)
          (push-val 'quasiquote)
          (get-char)
          (go read-quotes-content)
          
        read-unquote
-         (print 'read-quote)
          (push-result)
          (get-char)
          (cond ((char= char #\@)
@@ -150,10 +154,8 @@
          (go read-quotes-content)
          
        read-symbol
-         (print 'read-symbol)
          (push-result)
        read-symbol-loop
-         (print 'read-symbol-loop)
          (push-val char)
          (get-char)
          ;; Pas le # : '(a#(1 2)) => '(|a#| (1 2)), pas '(a #(1 2))
@@ -161,11 +163,10 @@
            (go read-symbol-loop))
          (push (intern (format nil "~:@(~{~a~}~)" (reverse result))) (car result-stack))
          (pop-result)
-         (format t "stack : ~a" stack)
          (go return)
 
        end-of-file
-         (print 'eof)
+         (error "End of file not expected here !")
          
        return
          (setq top-stack (car stack))
@@ -177,16 +178,16 @@
            (end-read-any (go end-read-any))
            (read-list (go read-list))
            (read-list-loop (go read-list-loop))
-           (read-list-loop-2 (go read-list-loop-2))
            (read-quote (go read-quote))
            (end-read-quotes (go end-read-quotes))
+           (end-read-sharp-char (go end-read-sharp-char))
+           (end-read-number (go end-read-number))
            (read-symbol (go read-symbol))
            (read-symbol-loop (go read-symbol-loop))
            (end-of-file (go end-of-file))
            (end (go end))
            (otherwise (error "bootstrap : read : Invalid return point on the stack : ~w" top-stack)))
-       end
-         (print 'end)))
+       end))
     (car result)))
 
 ;; (my-read (make-string-input-stream "foo"))
@@ -204,3 +205,8 @@
 
 ;; (my-read (make-string-input-stream "'(foo bar;;quux aa
 ;;  baz \"buz\" 'moo)"))
+
+;; (my-read (make-string-input-stream "'(foo bar;;quux aa
+;;  (baz #\\y \"buz\") 'moo)"))
+
+(my-read (make-string-input-stream "(list '(+ 2 3))"))

@@ -280,12 +280,36 @@
   (splice-up-tagbody-1 (reverse body) nil nil))
 
 (defun mini-meval-error (expr etat &rest message)
-  (error "mini-meval : ~w~&expression = ~w~&etat-global = ~w~&etat-local = ~w~&etat-special = ~w"
+  (error "mini-meval (outer) : ~w~&expression = ~w~&etat-global = ~w~&etat-local = ~w~&etat-special = ~w"
          (apply #'format nil message)
          expr
          (etat-global etat)
          (etat-local etat)
          (etat-special etat)))
+
+(defun transform-quasiquote (expr)
+  (cond
+   ;; a
+   ((atom expr)
+	 `',expr)
+   ;; (a)
+   ((atom (car expr))
+    `(cons ',(car expr)
+	   ,(transform-quasiquote (cdr expr))))
+   ;; (,a)
+   ((eq 'unquote (caar expr))
+    `(cons ,(cadar expr)
+	   ,(transform-quasiquote (cdr expr))))
+   ;; (,@a)
+   ((eq 'unquote-splice (caar expr))
+    (if (endp (cdr expr))
+	(cadar expr)
+      `(append ,(cadar expr)
+	       ,(transform-quasiquote (cdr expr)))))
+   ;; ((a ...) ...)
+   (T
+    `(cons ,(transform-quasiquote (car expr))
+	   ,(transform-quasiquote (cdr expr))))))
 
 #|
 Mini-meval est un meval très simple destiné à évaluer les macros et les autres directives avec eval-when :compile-toplevel.
@@ -305,6 +329,8 @@ Mini-meval sera appellé sur des morceaux spécifiques du fichier source. Il fau
   
   (cond-match
    expr
+   ((quasiquote :val . _)
+    (mini-meval (transform-quasiquote val) etat))
    #| 2) Cas des macros |#
    ((:name $$ :params _*)
     (let ((definition (assoc-etat name 'macro etat)))
