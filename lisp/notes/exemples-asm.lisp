@@ -14,6 +14,7 @@
   (mov (indirect-constant 42) (register r1))
   
   ;; r1 := mem[mem[4+r0]]
+  ;; TODO : ou bien mem[4+mem[r0]] ???
   (mov (indirect-indexed 4 r0) (register r1))
   
   ;; mem[mem[4+r0]] := r1
