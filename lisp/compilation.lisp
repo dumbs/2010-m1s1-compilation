@@ -344,6 +344,8 @@ Attention : il y a quelques invariants qui ne sont pas présents dans cette vér
                `(section code ,(code-label name)))
               ((jump :dest $$)
                `(section code (jmp ,(code-label name))))
+              ;; TODO : cas particulier funcall car
+              ;; TODO : cas particulier funcall cdr
               ((funcall :fun _ :params _*)
                `(section code
                          (push (register ip))
@@ -380,15 +382,27 @@ Attention : il y a quelques invariants qui ne sont pas présents dans cette vér
                          ;; allways set cdr to nil, in case the gc came by :
                          ;;   mov constant-nil r0[+5]
                          ;; mov r0 r1
-
+                         
                          ;; On calcule la fonction :
                          ;;  push r1
                          (compilo-3 fun)
+
+                         ;; Facultatif :
+                         ;; On teste si le premier octet de *r0 est bien closure-object (sait-on jamais…)
+                         ;;   mov [r0] r1
+                         ;;   cmp (constante ...) r1
+                         ;;   jneq (syslabel invalid closure object)
+                         ;; Fin facultatif
                          
-                         ;; TODO : gérer la closure
-                         
-                         ;; push ip
-                         ;; jmp r0
+                         ;; On récupère la closure
+                         ;;   mov r0[+5] r1
+                         ;;   push r1 ;; on push la closure
+                         ;;   TODO !!! la closure et les paramètres sont dans le mauvais ordre ! corriger ça dans le préambule de la fonction
+                         ;; On récupère la fonction
+                         ;;   mov r0[+1] r0
+                         ;; On appelle la fonction
+                         ;;   push ip
+                         ;;   jmp r0
                          
 
                          ;; calculer les paramètres un à un
@@ -417,9 +431,10 @@ Attention : il y a quelques invariants qui ne sont pas présents dans cette vér
                          ,(compilo-3 value)
                          (mov (register r0) (memory ,(global-label-variable name)))))
               ((make-closure :fun $$ :vars $$*)
-               ;; On alloue 5 octets pour un objet closure
+               ;; On alloue 1+4+4 octets pour un objet closure
                ;; set type = closure-object
-               ;; set valeur = on construit une liste de longueur (length vars) en la remplissant avec les valeurs des vars.
+               ;; set mot1 = adresse de la fonction
+               ;; set mot2 = on construit une liste de longueur (length vars) en la remplissant avec les valeurs des vars.
                t)
               ((make-captured-var :name $$)
                `(section code
