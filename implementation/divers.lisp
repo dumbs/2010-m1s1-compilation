@@ -1,6 +1,13 @@
 ;; variables "locales" : documentation
 (defvar documentation '(function variable struct)) ;; TODO
 
+(defvar meval-op '(car cdr funcall apply mapcar last + - * / read caaaar caaadr caadar caaddr cadaar cadadr caddar cadddr 
+		       cdaaar cdaadr cdadar cdaddr cddaar cddadr cdddar cddddr caaar caadr cadar caddr cdaar cdadr cddar
+		       cdddr caar cadr cdar cddr first second third fourth fifth sixth seventh eighth ninth tenth
+		       tree-equal char schar string string= make-string ))
+
+
+
 ;; TODO : décider de quelles "primitives" on a besoin.
 ;; "Primitives" :
 ;; - (%asm in-values out-values clobber-registers instructions)

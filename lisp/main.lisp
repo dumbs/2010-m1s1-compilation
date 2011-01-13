@@ -15,5 +15,6 @@
 (load "squash-lisp")
 (load "compilation")
 (load "equiv-tests")
+(load "../implementation/meval-op")
 
 (provide 'main)
