@@ -283,9 +283,10 @@
   (error "mini-meval (outer) : ~w~&expression = ~w~&etat-global = ~w~&etat-local = ~w~&etat-special = ~w"
          (apply #'format nil message)
          expr
-         (etat-global etat)
-         (etat-local etat)
-         (etat-special etat)))
+         nil nil nil))
+;         (etat-global etat)
+;         (etat-local etat)
+;         (etat-special etat)))
 
 (defun transform-quasiquote (expr)
   (cond
