@@ -66,4 +66,23 @@
            make-symbol
            print
            endp
+           keywordp
+           consp
+           null
+           atom
+           length
+           map
+           identity
+           last
+           char=
+           member
+           intern
+           format
+           mapcar
+           reverse
+           acons
+           append
+           butlast
+           not
+           listp
 ))

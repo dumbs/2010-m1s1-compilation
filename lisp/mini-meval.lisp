@@ -525,7 +525,7 @@ Mini-meval sera appellé sur des morceaux spécifiques du fichier source. Il fau
           #| - Si on a une fonction de ce nom dans l'état-local ou dans l'etat-global, on l'exécute. |#
           (apply (cdr definition) (mapcar (lambda (x) (mini-meval x etat)) params))
           (mini-meval-error expr etat "Undefined function : ~w." name))))
-   ((? or numberp stringp)
+   ((? or numberp stringp characterp)
     expr)
    ;; TODO : nil et t devraient être des defconst
    (nil
@@ -536,7 +536,8 @@ Mini-meval sera appellé sur des morceaux spécifiques du fichier source. Il fau
           (cdr definition)
           (mini-meval-error expr etat "Undefined variable : ~w." expr))))
    (_
-    (error "mini-meval : this is unsupported : ~a" expr))))
+    (print expr)
+    (error "mini-meval : this is unsupported : ~w ." expr))))
 ;)
 
 (defun push-functions (etat functions)

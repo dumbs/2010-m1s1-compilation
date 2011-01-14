@@ -1,4 +1,31 @@
 (progn
+  (defvar t 't)
+  (defmacro when (condition &rest body)
+    `(if ,condition
+         (progn ,@body)
+         nil))
+  (defmacro unless (condition &rest body)
+    `(if ,condition
+         nil
+         (progn ,@body)))
+  (defmacro cond (&rest exprs)
+    (if (endp exprs)
+        nil
+        `(if ,(caar exprs)
+             ,(cadar exprs)
+             (cond ,@(cdr exprs)))))
+  (defmacro and (&rest exprs)
+    (if (endp exprs)
+        t
+        `(if ,(car exprs)
+             (and ,@(cdr exprs))
+             nil)))
+  (defmacro or (&rest exprs)
+    (if (endp exprs)
+        nil
+        `(if ,(car exprs)
+             t
+             (or ,@(cdr exprs)))))
   (defun n-consp (n l)
     "Détermine s'il y a au moins n cellules dans la liste l."
     (if (<= n 0)
